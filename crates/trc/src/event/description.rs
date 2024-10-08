@@ -51,6 +51,7 @@ impl EventType {
             EventType::Telemetry(event) => event.description(),
             EventType::MessageIngest(event) => event.description(),
             EventType::Security(event) => event.description(),
+            EventType::Ai(event) => event.description(),
         }
     }
 
@@ -98,6 +99,7 @@ impl EventType {
             EventType::Telemetry(event) => event.explain(),
             EventType::MessageIngest(event) => event.explain(),
             EventType::Security(event) => event.explain(),
+            EventType::Ai(event) => event.explain(),
         }
     }
 }
@@ -1742,6 +1744,7 @@ impl AuthEvent {
             AuthEvent::TooManyAttempts => "Too many authentication attempts",
             AuthEvent::Error => "Authentication error",
             AuthEvent::TokenExpired => "OAuth token expired",
+            AuthEvent::ClientRegistration => "OAuth Client registration",
         }
     }
 
@@ -1753,6 +1756,7 @@ impl AuthEvent {
             AuthEvent::TooManyAttempts => "Too many authentication attempts have been made",
             AuthEvent::Error => "An error occurred with authentication",
             AuthEvent::TokenExpired => "OAuth authentication token has expired",
+            AuthEvent::ClientRegistration => "OAuth client successfully registered",
         }
     }
 }
@@ -1783,9 +1787,10 @@ impl SecurityEvent {
     pub fn description(&self) -> &'static str {
         match self {
             SecurityEvent::AuthenticationBan => "Banned due to authentication errors",
-            SecurityEvent::BruteForceBan => "Banned due to brute force attack",
+            SecurityEvent::AbuseBan => "Banned due to abuse",
             SecurityEvent::LoiterBan => "Banned due to loitering",
             SecurityEvent::IpBlocked => "Blocked IP address",
+            SecurityEvent::ScanBan => "Banned due to scan",
             SecurityEvent::Unauthorized => "Unauthorized access",
         }
     }
@@ -1795,12 +1800,29 @@ impl SecurityEvent {
             SecurityEvent::AuthenticationBan => {
                 "IP address was banned due to multiple authentication errors"
             }
-            SecurityEvent::BruteForceBan => {
-                "IP address was banned due to possible brute force attack"
+            SecurityEvent::AbuseBan => {
+                "IP address was banned due to abuse, such as RCPT TO attacks"
             }
+            SecurityEvent::ScanBan => "IP address was banned due to exploit scanning",
             SecurityEvent::LoiterBan => "IP address was banned due to multiple loitering events",
             SecurityEvent::IpBlocked => "Rejected connection from blocked IP address",
             SecurityEvent::Unauthorized => "Account does not have permission to access resource",
+        }
+    }
+}
+
+impl AiEvent {
+    pub fn description(&self) -> &'static str {
+        match self {
+            AiEvent::LlmResponse => "LLM response",
+            AiEvent::ApiError => "AI API error",
+        }
+    }
+
+    pub fn explain(&self) -> &'static str {
+        match self {
+            AiEvent::LlmResponse => "An LLM response has been received",
+            AiEvent::ApiError => "An AI API error occurred",
         }
     }
 }

@@ -854,12 +854,16 @@ impl EventType {
             EventType::Tls(TlsEvent::NoCertificatesAvailable) => 546,
             EventType::Tls(TlsEvent::NotConfigured) => 547,
             EventType::Telemetry(TelemetryEvent::Alert) => 548,
-            EventType::Security(SecurityEvent::BruteForceBan) => 549,
+            EventType::Security(SecurityEvent::AbuseBan) => 549,
             EventType::Security(SecurityEvent::LoiterBan) => 550,
             EventType::Smtp(SmtpEvent::MailFromNotAllowed) => 551,
             EventType::Security(SecurityEvent::Unauthorized) => 552,
             EventType::Limit(LimitEvent::TenantQuota) => 553,
             EventType::Auth(AuthEvent::TokenExpired) => 554,
+            EventType::Auth(AuthEvent::ClientRegistration) => 555,
+            EventType::Ai(AiEvent::LlmResponse) => 556,
+            EventType::Ai(AiEvent::ApiError) => 557,
+            EventType::Security(SecurityEvent::ScanBan) => 558,
         }
     }
 
@@ -1454,12 +1458,16 @@ impl EventType {
             546 => Some(EventType::Tls(TlsEvent::NoCertificatesAvailable)),
             547 => Some(EventType::Tls(TlsEvent::NotConfigured)),
             548 => Some(EventType::Telemetry(TelemetryEvent::Alert)),
-            549 => Some(EventType::Security(SecurityEvent::BruteForceBan)),
+            549 => Some(EventType::Security(SecurityEvent::AbuseBan)),
             550 => Some(EventType::Security(SecurityEvent::LoiterBan)),
             551 => Some(EventType::Smtp(SmtpEvent::MailFromNotAllowed)),
             552 => Some(EventType::Security(SecurityEvent::Unauthorized)),
             553 => Some(EventType::Limit(LimitEvent::TenantQuota)),
             554 => Some(EventType::Auth(AuthEvent::TokenExpired)),
+            555 => Some(EventType::Auth(AuthEvent::ClientRegistration)),
+            556 => Some(EventType::Ai(AiEvent::LlmResponse)),
+            557 => Some(EventType::Ai(AiEvent::ApiError)),
+            558 => Some(EventType::Security(SecurityEvent::ScanBan)),
             _ => None,
         }
     }

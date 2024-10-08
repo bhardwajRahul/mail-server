@@ -86,7 +86,7 @@ pub async fn test(params: &mut JMAPTest) {
         license: LicenseKey {
             valid_to: now() + 3600,
             valid_from: now() - 3600,
-            hostname: String::new(),
+            domain: String::new(),
             accounts: 100,
         },
         undelete: Undelete {
@@ -106,6 +106,7 @@ pub async fn test(params: &mut JMAPTest) {
         .into(),
         metrics_alerts: parse_metric_alerts(&mut config),
         logo_url: None,
+        ai_apis: Default::default(),
     }
     .into();
     config.assert_no_errors();
@@ -162,7 +163,7 @@ impl EnterpriseCore for Core {
             license: LicenseKey {
                 valid_to: now() + 3600,
                 valid_from: now() - 3600,
-                hostname: String::new(),
+                domain: String::new(),
                 accounts: 100,
             },
             undelete: None,
@@ -170,6 +171,7 @@ impl EnterpriseCore for Core {
             metrics_store: None,
             metrics_alerts: vec![],
             logo_url: None,
+            ai_apis: Default::default(),
         }
         .into();
         self
@@ -457,7 +459,8 @@ pub async fn insert_test_metrics(core: Arc<Core>) {
             EventType::MessageIngest(MessageIngestEvent::Spam),
             EventType::Auth(AuthEvent::Failed),
             EventType::Security(SecurityEvent::AuthenticationBan),
-            EventType::Security(SecurityEvent::BruteForceBan),
+            EventType::Security(SecurityEvent::ScanBan),
+            EventType::Security(SecurityEvent::AbuseBan),
             EventType::Security(SecurityEvent::LoiterBan),
             EventType::Security(SecurityEvent::IpBlocked),
             EventType::IncomingReport(IncomingReportEvent::DmarcReport),

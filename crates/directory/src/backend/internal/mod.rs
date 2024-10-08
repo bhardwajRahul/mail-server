@@ -370,9 +370,12 @@ impl MigrateDirectory for Store {
                     key: [3u8].iter().chain(domain.as_bytes()).copied().collect(),
                 }));
 
-            self.write(batch.build())
-                .await
-                .caused_by(trc::location!())?;
+            if let Err(err) = self.write(batch.build()).await {
+                trc::error!(err
+                    .caused_by(trc::location!())
+                    .details("Failed to migrate domain, probably a principal already exists")
+                    .ctx(trc::Key::Domain, domain));
+            }
         }
 
         if total_domain_count > 0 || total_principal_count > 0 {
@@ -408,6 +411,7 @@ pub enum PrincipalField {
     EnabledPermissions,
     DisabledPermissions,
     Picture,
+    Urls,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -486,6 +490,7 @@ impl PrincipalField {
             PrincipalField::DisabledPermissions => 12,
             PrincipalField::UsedQuota => 13,
             PrincipalField::Picture => 14,
+            PrincipalField::Urls => 15,
         }
     }
 
@@ -506,6 +511,7 @@ impl PrincipalField {
             12 => Some(PrincipalField::DisabledPermissions),
             13 => Some(PrincipalField::UsedQuota),
             14 => Some(PrincipalField::Picture),
+            15 => Some(PrincipalField::Urls),
             _ => None,
         }
     }
@@ -527,6 +533,7 @@ impl PrincipalField {
             PrincipalField::EnabledPermissions => "enabledPermissions",
             PrincipalField::DisabledPermissions => "disabledPermissions",
             PrincipalField::Picture => "picture",
+            PrincipalField::Urls => "urls",
         }
     }
 
@@ -547,6 +554,7 @@ impl PrincipalField {
             "enabledPermissions" => Some(PrincipalField::EnabledPermissions),
             "disabledPermissions" => Some(PrincipalField::DisabledPermissions),
             "picture" => Some(PrincipalField::Picture),
+            "urls" => Some(PrincipalField::Urls),
             _ => None,
         }
     }

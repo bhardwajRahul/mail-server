@@ -7,18 +7,24 @@
 use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose, Engine};
+use biscuit::{jwk::JWKSet, SingleOrMultiple, JWT};
 use bytes::Bytes;
-use common::auth::oauth::introspect::OAuthIntrospect;
+use common::auth::oauth::{
+    introspect::OAuthIntrospect,
+    oidc::Nonce,
+    registration::{ClientRegistrationRequest, ClientRegistrationResponse},
+};
 use imap_proto::ResponseType;
 use jmap::auth::oauth::{
-    DeviceAuthResponse, ErrorType, OAuthCodeRequest, OAuthMetadata, TokenResponse,
+    auth::OAuthMetadata, openid::OpenIdMetadata, DeviceAuthResponse, ErrorType, OAuthCodeRequest,
+    TokenResponse,
 };
 use jmap_client::{
     client::{Client, Credentials},
     mailbox::query::Filter,
 };
 use jmap_proto::types::id::Id;
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Serialize};
 use store::ahash::AHashMap;
 
 use crate::{
@@ -47,20 +53,18 @@ pub async fn test(params: &mut JMAPTest) {
 
     // Create test account
     let server = params.server.clone();
-    let john_id = Id::from(
-        server
-            .core
-            .storage
-            .data
-            .create_test_user(
-                "jdoe@example.com",
-                "12345",
-                "John Doe",
-                &["jdoe@example.com"],
-            )
-            .await,
-    )
-    .to_string();
+    let john_int_id = server
+        .core
+        .storage
+        .data
+        .create_test_user(
+            "jdoe@example.com",
+            "12345",
+            "John Doe",
+            &["jdoe@example.com"],
+        )
+        .await;
+    let john_id = Id::from(john_int_id).to_string();
 
     // Build API
     let api = ManagementApi::new(8899, "jdoe@example.com", "12345");
@@ -68,7 +72,25 @@ pub async fn test(params: &mut JMAPTest) {
     // Obtain OAuth metadata
     let metadata: OAuthMetadata =
         get("https://127.0.0.1:8899/.well-known/oauth-authorization-server").await;
-    //println!("OAuth metadata: {:#?}", metadata);
+    let oidc_metadata: OpenIdMetadata =
+        get("https://127.0.0.1:8899/.well-known/openid-configuration").await;
+    let jwk_set: JWKSet<()> = get(&oidc_metadata.jwks_uri).await;
+
+    // Register client
+    let registration: ClientRegistrationResponse = post_json(
+        &metadata.registration_endpoint,
+        None,
+        &ClientRegistrationRequest {
+            redirect_uris: vec!["https://localhost".to_string()],
+            ..Default::default()
+        },
+    )
+    .await;
+    let client_id = registration.client_id;
+
+    /*println!("OAuth metadata: {:#?}", metadata);
+    println!("OpenID metadata: {:#?}", oidc_metadata);
+    println!("JWKSet: {:#?}", jwk_set);*/
 
     // ------------------------
     // Authorization code flow
@@ -79,8 +101,9 @@ pub async fn test(params: &mut JMAPTest) {
         .post::<OAuthCodeResponse>(
             "/api/oauth",
             &OAuthCodeRequest::Code {
-                client_id: "OAuthyMcOAuthFace".to_string(),
+                client_id: client_id.to_string(),
                 redirect_uri: "https://localhost".to_string().into(),
+                nonce: "abc1234".to_string().into(),
             },
         )
         .await
@@ -100,7 +123,7 @@ pub async fn test(params: &mut JMAPTest) {
             error: ErrorType::InvalidClient
         }
     );
-    token_params.insert("client_id".to_string(), "OAuthyMcOAuthFace".to_string());
+    token_params.insert("client_id".to_string(), client_id.to_string());
     token_params.insert(
         "redirect_uri".to_string(),
         "https://some-other.url".to_string(),
@@ -114,8 +137,8 @@ pub async fn test(params: &mut JMAPTest) {
 
     // Obtain token
     token_params.insert("redirect_uri".to_string(), "https://localhost".to_string());
-    let (token, refresh_token, _) =
-        unwrap_token_response(post(&metadata.token_endpoint, &token_params).await);
+    let (token, refresh_token, id_token) =
+        unwrap_oidc_token_response(post(&metadata.token_endpoint, &token_params).await);
 
     // Connect to account using token and attempt to search
     let john_client = Client::new()
@@ -132,6 +155,21 @@ pub async fn test(params: &mut JMAPTest) {
         .ids()
         .is_empty());
 
+    // Verify ID token using the JWK set
+    let id_token = JWT::<Nonce, biscuit::Empty>::new_encoded(&id_token)
+        .decode_with_jwks(&jwk_set, None)
+        .unwrap();
+    let claims = id_token.payload().unwrap();
+    let registered_claims = &claims.registered;
+    let private_claims = &claims.private;
+    assert_eq!(registered_claims.issuer, Some(oidc_metadata.issuer));
+    assert_eq!(registered_claims.subject, Some(john_int_id.to_string()));
+    assert_eq!(
+        registered_claims.audience,
+        Some(SingleOrMultiple::Single(client_id.to_string()))
+    );
+    assert_eq!(private_claims.nonce, Some("abc1234".to_string()));
+
     // Introspect token
     let access_introspect: OAuthIntrospect = post_with_auth::<OAuthIntrospect>(
         &metadata.introspection_endpoint,
@@ -141,7 +179,7 @@ pub async fn test(params: &mut JMAPTest) {
     .await;
     assert_eq!(access_introspect.username.unwrap(), "jdoe@example.com");
     assert_eq!(access_introspect.token_type.unwrap(), "bearer");
-    assert_eq!(access_introspect.client_id.unwrap(), "OAuthyMcOAuthFace");
+    assert_eq!(access_introspect.client_id.unwrap(), client_id);
     assert!(access_introspect.active);
     let refresh_introspect = post_with_auth::<OAuthIntrospect>(
         &metadata.introspection_endpoint,
@@ -150,7 +188,7 @@ pub async fn test(params: &mut JMAPTest) {
     )
     .await;
     assert_eq!(refresh_introspect.username.unwrap(), "jdoe@example.com");
-    assert_eq!(refresh_introspect.client_id.unwrap(), "OAuthyMcOAuthFace");
+    assert_eq!(refresh_introspect.client_id.unwrap(), client_id);
     assert!(refresh_introspect.active);
     assert_eq!(
         refresh_introspect.iat.unwrap(),
@@ -193,14 +231,15 @@ pub async fn test(params: &mut JMAPTest) {
     // ------------------------
 
     // Request a device code
-    let device_code_params = AHashMap::from_iter([("client_id".to_string(), "1234".to_string())]);
+    let device_code_params =
+        AHashMap::from_iter([("client_id".to_string(), client_id.to_string())]);
     let device_response: DeviceAuthResponse =
         post(&metadata.device_authorization_endpoint, &device_code_params).await;
     //println!("Device response: {:#?}", device_response);
 
     // Status should be pending
     let mut token_params = AHashMap::from_iter([
-        ("client_id".to_string(), "1234".to_string()),
+        ("client_id".to_string(), client_id.to_string()),
         (
             "grant_type".to_string(),
             "urn:ietf:params:oauth:grant-type:device_code".to_string(),
@@ -295,7 +334,7 @@ pub async fn test(params: &mut JMAPTest) {
         post::<TokenResponse>(
             &metadata.token_endpoint,
             &AHashMap::from_iter([
-                ("client_id".to_string(), "1234".to_string()),
+                ("client_id".to_string(), client_id.to_string()),
                 ("grant_type".to_string(), "refresh_token".to_string()),
                 ("refresh_token".to_string(), token),
             ]),
@@ -308,7 +347,7 @@ pub async fn test(params: &mut JMAPTest) {
 
     // Refreshing the access token before expiration should not include a new refresh token
     let refresh_params = AHashMap::from_iter([
-        ("client_id".to_string(), "1234".to_string()),
+        ("client_id".to_string(), client_id.to_string()),
         ("grant_type".to_string(), "refresh_token".to_string()),
         ("refresh_token".to_string(), refresh_token),
     ]);
@@ -383,6 +422,35 @@ async fn post_bytes(
         .unwrap()
 }
 
+async fn post_json<D: DeserializeOwned>(
+    url: &str,
+    auth_token: Option<&str>,
+    body: &impl Serialize,
+) -> D {
+    let mut client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(500))
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap_or_default()
+        .post(url);
+
+    if let Some(auth_token) = auth_token {
+        client = client.bearer_auth(auth_token);
+    }
+
+    serde_json::from_slice(
+        &client
+            .body(serde_json::to_string(body).unwrap().into_bytes())
+            .send()
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap(),
+    )
+    .unwrap()
+}
+
 async fn post<T: DeserializeOwned>(url: &str, params: &AHashMap<String, String>) -> T {
     post_with_auth(url, None, params).await
 }
@@ -436,6 +504,20 @@ fn unwrap_token_response(response: TokenResponse) -> (String, Option<String>, u6
                 granted.access_token,
                 granted.refresh_token,
                 granted.expires_in,
+            )
+        }
+        TokenResponse::Error { error } => panic!("Expected granted, got {:?}", error),
+    }
+}
+
+fn unwrap_oidc_token_response(response: TokenResponse) -> (String, Option<String>, String) {
+    match response {
+        TokenResponse::Granted(granted) => {
+            assert_eq!(granted.token_type, "bearer");
+            (
+                granted.access_token,
+                granted.refresh_token,
+                granted.id_token.unwrap(),
             )
         }
         TokenResponse::Error { error } => panic!("Expected granted, got {:?}", error),

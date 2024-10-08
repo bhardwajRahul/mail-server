@@ -4,16 +4,23 @@
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use arc_swap::ArcSwap;
+use base64::{engine::general_purpose, Engine};
 use directory::{Directories, Directory};
+use hyper::{
+    header::{HeaderName, HeaderValue, AUTHORIZATION},
+    HeaderMap,
+};
+use ring::signature::{EcdsaKeyPair, RsaKeyPair};
 use store::{BlobBackend, BlobStore, FtsStore, LookupStore, Store, Stores};
 use telemetry::Metrics;
-use utils::config::Config;
+use utils::config::{utils::AsKey, Config};
 
 use crate::{
-    expr::*, listener::tls::AcmeProviders, manager::config::ConfigManager, Core, Network, Security,
+    auth::oauth::config::OAuthConfig, expr::*, listener::tls::AcmeProviders,
+    manager::config::ConfigManager, Core, Network, Security,
 };
 
 use self::{
@@ -60,6 +67,9 @@ impl Core {
             })
             .unwrap_or_default();
 
+        #[cfg(not(feature = "enterprise"))]
+        let is_enterprise = false;
+
         // SPDX-SnippetBegin
         // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
         // SPDX-License-Identifier: LicenseRef-SEL
@@ -67,7 +77,10 @@ impl Core {
         let enterprise = crate::enterprise::Enterprise::parse(config, &stores, &data).await;
 
         #[cfg(feature = "enterprise")]
-        if enterprise.is_none() {
+        let is_enterprise = enterprise.is_some();
+
+        #[cfg(feature = "enterprise")]
+        if is_enterprise {
             if data.is_enterprise_store() {
                 config
                     .new_build_error("storage.data", "SQL read replicas is an Enterprise feature");
@@ -119,7 +132,8 @@ impl Core {
                 }
             })
             .unwrap_or_default();
-        let mut directories = Directories::parse(config, &stores, data.clone()).await;
+        let mut directories =
+            Directories::parse(config, &stores, data.clone(), is_enterprise).await;
         let directory = config
             .value_require("storage.directory")
             .map(|id| id.to_string())
@@ -163,6 +177,7 @@ impl Core {
             smtp: SmtpConfig::parse(config).await,
             jmap: JmapConfig::parse(config),
             imap: ImapConfig::parse(config),
+            oauth: OAuthConfig::parse(config),
             acme: AcmeProviders::parse(config),
             metrics: Metrics::parse(config),
             storage: Storage {
@@ -185,4 +200,86 @@ impl Core {
     pub fn into_shared(self) -> ArcSwap<Self> {
         ArcSwap::from_pointee(self)
     }
+}
+
+pub fn build_rsa_keypair(pem: &str) -> Result<RsaKeyPair, String> {
+    match rustls_pemfile::read_one(&mut pem.as_bytes()) {
+        Ok(Some(rustls_pemfile::Item::Pkcs1Key(key))) => {
+            RsaKeyPair::from_der(key.secret_pkcs1_der())
+                .map_err(|err| format!("Failed to parse PKCS1 RSA key: {err}"))
+        }
+        Ok(Some(rustls_pemfile::Item::Pkcs8Key(key))) => {
+            RsaKeyPair::from_pkcs8(key.secret_pkcs8_der())
+                .map_err(|err| format!("Failed to parse PKCS8 RSA key: {err}"))
+        }
+        Err(err) => Err(format!("Failed to read PEM: {err}")),
+        Ok(Some(key)) => Err(format!("Unsupported key type: {key:?}")),
+        Ok(None) => Err("No RSA key found in PEM".to_string()),
+    }
+}
+
+pub fn build_ecdsa_pem(
+    alg: &'static ring::signature::EcdsaSigningAlgorithm,
+    pem: &str,
+) -> Result<EcdsaKeyPair, String> {
+    match rustls_pemfile::read_one(&mut pem.as_bytes()) {
+        Ok(Some(rustls_pemfile::Item::Pkcs8Key(key))) => EcdsaKeyPair::from_pkcs8(
+            alg,
+            key.secret_pkcs8_der(),
+            &ring::rand::SystemRandom::new(),
+        )
+        .map_err(|err| format!("Failed to parse PKCS8 ECDSA key: {err}")),
+        Err(err) => Err(format!("Failed to read PEM: {err}")),
+        Ok(Some(key)) => Err(format!("Unsupported key type: {key:?}")),
+        Ok(None) => Err("No ECDSA key found in PEM".to_string()),
+    }
+}
+
+pub(crate) fn parse_http_headers(config: &mut Config, prefix: impl AsKey) -> HeaderMap {
+    let prefix = prefix.as_key();
+    let mut headers = HeaderMap::new();
+
+    for (header, value) in config
+        .values((&prefix, "headers"))
+        .map(|(_, v)| {
+            if let Some((k, v)) = v.split_once(':') {
+                Ok((
+                    HeaderName::from_str(k.trim()).map_err(|err| {
+                        format!("Invalid header found in property \"{prefix}.headers\": {err}",)
+                    })?,
+                    HeaderValue::from_str(v.trim()).map_err(|err| {
+                        format!("Invalid header found in property \"{prefix}.headers\": {err}",)
+                    })?,
+                ))
+            } else {
+                Err(format!(
+                    "Invalid header found in property \"{prefix}.headers\": {v}",
+                ))
+            }
+        })
+        .collect::<Result<Vec<(HeaderName, HeaderValue)>, String>>()
+        .map_err(|e| config.new_parse_error((&prefix, "headers"), e))
+        .unwrap_or_default()
+    {
+        headers.insert(header, value);
+    }
+
+    if let (Some(name), Some(secret)) = (
+        config.value((&prefix, "auth.username")),
+        config.value((&prefix, "auth.secret")),
+    ) {
+        headers.insert(
+            AUTHORIZATION,
+            format!(
+                "Basic {}",
+                general_purpose::STANDARD.encode(format!("{}:{}", name, secret))
+            )
+            .parse()
+            .unwrap(),
+        );
+    } else if let Some(token) = config.value((&prefix, "auth.token")) {
+        headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
+    }
+
+    headers
 }

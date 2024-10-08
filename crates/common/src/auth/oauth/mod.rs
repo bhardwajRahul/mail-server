@@ -4,8 +4,11 @@
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
+pub mod config;
 pub mod crypto;
 pub mod introspect;
+pub mod oidc;
+pub mod registration;
 pub mod token;
 
 pub const DEVICE_CODE_LEN: usize = 40;

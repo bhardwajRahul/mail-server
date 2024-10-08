@@ -15,7 +15,9 @@ use store::{
 };
 use trc::AddContext;
 
-use crate::{Permission, Principal, QueryBy, Type, ROLE_ADMIN, ROLE_TENANT_ADMIN, ROLE_USER};
+use crate::{
+    Permission, Principal, QueryBy, Type, MAX_TYPE_ID, ROLE_ADMIN, ROLE_TENANT_ADMIN, ROLE_USER,
+};
 
 use super::{
     lookup::DirectoryStore, PrincipalAction, PrincipalField, PrincipalInfo, PrincipalUpdate,
@@ -37,7 +39,7 @@ pub struct UpdatePrincipal<'x> {
     query: QueryBy<'x>,
     changes: Vec<PrincipalUpdate>,
     tenant_id: Option<u32>,
-    validate: bool,
+    create_domains: bool,
 }
 
 #[allow(async_fn_in_trait)]
@@ -74,6 +76,16 @@ pub trait ManageDirectory: Sized {
         &self,
         principal: &mut Principal,
         fields: &[PrincipalField],
+    ) -> trc::Result<()>;
+}
+
+#[allow(async_fn_in_trait)]
+trait ValidateDirectory: Sized {
+    async fn validate_email(
+        &self,
+        email: &str,
+        tenant_id: Option<u32>,
+        create_if_missing: bool,
     ) -> trc::Result<()>;
 }
 
@@ -271,16 +283,7 @@ impl ManageDirectory for Store {
 
             principal.set(PrincipalField::Tenant, tenant_id);
 
-            if matches!(
-                principal.typ,
-                Type::Individual
-                    | Type::Group
-                    | Type::List
-                    | Type::Role
-                    | Type::Location
-                    | Type::Resource
-                    | Type::Other
-            ) {
+            if !matches!(principal.typ, Type::Tenant | Type::Domain) {
                 if let Some(domain) = name.split('@').nth(1) {
                     if self
                         .get_principal_info(domain)
@@ -366,18 +369,20 @@ impl ManageDirectory for Store {
         }
 
         // Make sure the e-mail is not taken and validate domain
-        for email in principal.iter_mut_str(PrincipalField::Emails) {
-            *email = email.to_lowercase();
-            if self.rcpt(email).await.caused_by(trc::location!())? {
-                return Err(err_exists(PrincipalField::Emails, email.to_string()));
-            }
-            if let Some(domain) = email.split('@').nth(1) {
-                if valid_domains.insert(domain.to_string()) {
-                    self.get_principal_info(domain)
-                        .await
-                        .caused_by(trc::location!())?
-                        .filter(|v| v.typ == Type::Domain && v.has_tenant_access(tenant_id))
-                        .ok_or_else(|| not_found(domain.to_string()))?;
+        if principal.typ != Type::OauthClient {
+            for email in principal.iter_mut_str(PrincipalField::Emails) {
+                *email = email.to_lowercase();
+                if self.rcpt(email).await.caused_by(trc::location!())? {
+                    return Err(err_exists(PrincipalField::Emails, email.to_string()));
+                }
+                if let Some(domain) = email.split('@').nth(1) {
+                    if valid_domains.insert(domain.to_string()) {
+                        self.get_principal_info(domain)
+                            .await
+                            .caused_by(trc::location!())?
+                            .filter(|v| v.typ == Type::Domain && v.has_tenant_access(tenant_id))
+                            .ok_or_else(|| not_found(domain.to_string()))?;
+                    }
                 }
             }
         }
@@ -513,6 +518,7 @@ impl ManageDirectory for Store {
                             Type::Other,
                             Type::Location,
                             Type::Domain,
+                            Type::ApiKey,
                         ],
                         &[PrincipalField::Name],
                         0,
@@ -684,7 +690,6 @@ impl ManageDirectory for Store {
         };
         let changes = params.changes;
         let tenant_id = params.tenant_id;
-        let validate = params.validate;
 
         // Fetch principal
         let mut principal = self
@@ -695,6 +700,7 @@ impl ManageDirectory for Store {
             .caused_by(trc::location!())?
             .ok_or_else(|| not_found(principal_id))?;
         principal.inner.id = principal_id;
+        let validate_emails = principal.inner.typ != Type::OauthClient;
 
         // Obtain members and memberOf
         let mut member_of = self
@@ -771,7 +777,12 @@ impl ManageDirectory for Store {
                 Type::Other,
             ][..],
             Type::List => &[Type::Individual, Type::Group][..],
-            Type::Other | Type::Domain | Type::Tenant | Type::Individual => &[][..],
+            Type::Other
+            | Type::Domain
+            | Type::Tenant
+            | Type::Individual
+            | Type::ApiKey
+            | Type::OauthClient => &[][..],
             Type::Role => &[Type::Role][..],
         };
         let mut valid_domains = AHashSet::new();
@@ -784,16 +795,7 @@ impl ManageDirectory for Store {
                     let new_name = new_name.to_lowercase();
                     if principal.inner.name() != new_name {
                         if tenant_id.is_some()
-                            && matches!(
-                                principal.inner.typ,
-                                Type::Individual
-                                    | Type::Group
-                                    | Type::List
-                                    | Type::Role
-                                    | Type::Location
-                                    | Type::Resource
-                                    | Type::Other
-                            )
+                            && !matches!(principal.inner.typ, Type::Tenant | Type::Domain)
                         {
                             if let Some(domain) = new_name.split('@').nth(1) {
                                 if self
@@ -978,7 +980,7 @@ impl ManageDirectory for Store {
                     PrincipalField::Quota,
                     PrincipalValue::IntegerList(quotas),
                 ) if matches!(principal.inner.typ, Type::Tenant)
-                    && quotas.len() <= (Type::Role as usize + 2) =>
+                    && quotas.len() <= (MAX_TYPE_ID + 2) =>
                 {
                     principal.inner.set(PrincipalField::Quota, quotas);
                 }
@@ -996,22 +998,9 @@ impl ManageDirectory for Store {
                         .collect::<Vec<_>>();
                     for email in &emails {
                         if !principal.inner.has_str_value(PrincipalField::Emails, email) {
-                            if validate {
-                                if self.rcpt(email).await.caused_by(trc::location!())? {
-                                    return Err(err_exists(
-                                        PrincipalField::Emails,
-                                        email.to_string(),
-                                    ));
-                                }
-                                if let Some(domain) = email.split('@').nth(1) {
-                                    if !self
-                                        .is_local_domain(domain)
-                                        .await
-                                        .caused_by(trc::location!())?
-                                    {
-                                        return Err(not_found(domain.to_string()));
-                                    }
-                                }
+                            if validate_emails {
+                                self.validate_email(email, tenant_id, params.create_domains)
+                                    .await?;
                             }
                             batch.set(
                                 ValueClass::Directory(DirectoryClass::EmailToId(
@@ -1042,19 +1031,9 @@ impl ManageDirectory for Store {
                         .inner
                         .has_str_value(PrincipalField::Emails, &email)
                     {
-                        if validate {
-                            if self.rcpt(&email).await.caused_by(trc::location!())? {
-                                return Err(err_exists(PrincipalField::Emails, email));
-                            }
-                            if let Some(domain) = email.split('@').nth(1) {
-                                if !self
-                                    .is_local_domain(domain)
-                                    .await
-                                    .caused_by(trc::location!())?
-                                {
-                                    return Err(not_found(domain.to_string()));
-                                }
-                            }
+                        if validate_emails {
+                            self.validate_email(&email, tenant_id, params.create_domains)
+                                .await?;
                         }
                         batch.set(
                             ValueClass::Directory(DirectoryClass::EmailToId(
@@ -1403,6 +1382,27 @@ impl ManageDirectory for Store {
                     principal
                         .inner
                         .retain_int(change.field, |v| *v != permission);
+                }
+                (PrincipalAction::Set, PrincipalField::Urls, PrincipalValue::StringList(urls)) => {
+                    if !urls.is_empty() {
+                        principal.inner.set(change.field, urls);
+                    } else {
+                        principal.inner.remove(change.field);
+                    }
+                }
+                (PrincipalAction::AddItem, PrincipalField::Urls, PrincipalValue::String(url)) => {
+                    if !principal.inner.has_str_value(change.field, &url) {
+                        principal.inner.append_str(change.field, url);
+                    }
+                }
+                (
+                    PrincipalAction::RemoveItem,
+                    PrincipalField::Urls,
+                    PrincipalValue::String(url),
+                ) => {
+                    if principal.inner.has_str_value(change.field, &url) {
+                        principal.inner.retain_str(change.field, |v| *v != url);
+                    }
                 }
 
                 (_, field, value) => {
@@ -1788,6 +1788,40 @@ impl ManageDirectory for Store {
     }
 }
 
+impl ValidateDirectory for Store {
+    async fn validate_email(
+        &self,
+        email: &str,
+        tenant_id: Option<u32>,
+        create_if_missing: bool,
+    ) -> trc::Result<()> {
+        if self.rcpt(email).await.caused_by(trc::location!())? {
+            Err(err_exists(PrincipalField::Emails, email.to_string()))
+        } else if let Some(domain) = email.split('@').nth(1) {
+            match self
+                .get_principal_info(domain)
+                .await
+                .caused_by(trc::location!())?
+            {
+                Some(v) if v.typ == Type::Domain && v.has_tenant_access(tenant_id) => Ok(()),
+                None if create_if_missing => self
+                    .create_principal(
+                        Principal::new(0, Type::Domain)
+                            .with_field(PrincipalField::Name, domain.to_string())
+                            .with_field(PrincipalField::Description, domain.to_string()),
+                        tenant_id,
+                    )
+                    .await
+                    .caused_by(trc::location!())
+                    .map(|_| ()),
+                _ => Err(not_found(domain.to_string())),
+            }
+        } else {
+            Err(error("Invalid email", "Email address is invalid".into()))
+        }
+    }
+}
+
 impl PrincipalField {
     pub fn map_internal_role_name(&self, name: &str) -> Option<u32> {
         match (self, name) {
@@ -1823,7 +1857,7 @@ impl<'x> UpdatePrincipal<'x> {
         Self {
             query: QueryBy::Id(id),
             changes: Vec::new(),
-            validate: true,
+            create_domains: false,
             tenant_id: None,
         }
     }
@@ -1832,7 +1866,7 @@ impl<'x> UpdatePrincipal<'x> {
         Self {
             query: QueryBy::Name(name),
             changes: Vec::new(),
-            validate: true,
+            create_domains: false,
             tenant_id: None,
         }
     }
@@ -1847,8 +1881,8 @@ impl<'x> UpdatePrincipal<'x> {
         self
     }
 
-    pub fn no_validate(mut self) -> Self {
-        self.validate = false;
+    pub fn create_domains(mut self) -> Self {
+        self.create_domains = true;
         self
     }
 }

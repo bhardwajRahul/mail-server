@@ -183,6 +183,7 @@ pub enum EventType {
     OutgoingReport(OutgoingReportEvent),
     Telemetry(TelemetryEvent),
     Security(SecurityEvent),
+    Ai(AiEvent),
 }
 
 #[event_type]
@@ -199,7 +200,8 @@ pub enum HttpEvent {
 #[event_type]
 pub enum SecurityEvent {
     AuthenticationBan,
-    BruteForceBan,
+    AbuseBan,
+    ScanBan,
     LoiterBan,
     IpBlocked,
     Unauthorized,
@@ -926,6 +928,7 @@ pub enum AuthEvent {
     TokenExpired,
     MissingTotp,
     TooManyAttempts,
+    ClientRegistration,
     Error,
 }
 
@@ -936,6 +939,12 @@ pub enum ResourceEvent {
     Error,
     DownloadExternal,
     WebadminUnpacked,
+}
+
+#[event_type]
+pub enum AiEvent {
+    LlmResponse,
+    ApiError,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -229,7 +229,7 @@ impl EventType {
                 AuthEvent::MissingTotp => Level::Trace,
                 AuthEvent::TooManyAttempts => Level::Warn,
                 AuthEvent::Error => Level::Error,
-                AuthEvent::Success => Level::Info,
+                AuthEvent::Success | AuthEvent::ClientRegistration => Level::Info,
             },
             EventType::Config(cause) => match cause {
                 ConfigEvent::ParseError
@@ -533,6 +533,10 @@ impl EventType {
                 MessageIngestEvent::Error => Level::Error,
             },
             EventType::Security(_) => Level::Info,
+            EventType::Ai(event) => match event {
+                AiEvent::LlmResponse => Level::Trace,
+                AiEvent::ApiError => Level::Warn,
+            },
         }
     }
 }

@@ -11,6 +11,8 @@ use utils::map::vec_map::VecMap;
 use crate::api::{http::fetch_body, HttpRequest};
 
 pub mod auth;
+pub mod openid;
+pub mod registration;
 pub mod token;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -38,6 +40,7 @@ pub struct OAuthCode {
     pub status: OAuthStatus,
     pub account_id: u32,
     pub client_id: String,
+    pub nonce: Option<String>,
     pub params: String,
 }
 
@@ -110,6 +113,8 @@ pub struct OAuthResponse {
     pub refresh_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_token: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -137,43 +142,13 @@ pub enum ErrorType {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct OAuthMetadata {
-    pub issuer: String,
-    pub token_endpoint: String,
-    pub authorization_endpoint: String,
-    pub device_authorization_endpoint: String,
-    pub introspection_endpoint: String,
-    pub grant_types_supported: Vec<String>,
-    pub response_types_supported: Vec<String>,
-    pub scopes_supported: Vec<String>,
-}
-
-impl OAuthMetadata {
-    pub fn new(base_url: impl AsRef<str>) -> Self {
-        let base_url = base_url.as_ref();
-        OAuthMetadata {
-            issuer: base_url.into(),
-            authorization_endpoint: format!("{base_url}/authorize/code",),
-            token_endpoint: format!("{base_url}/auth/token"),
-            grant_types_supported: vec![
-                "authorization_code".to_string(),
-                "implicit".to_string(),
-                "urn:ietf:params:oauth:grant-type:device_code".to_string(),
-            ],
-            device_authorization_endpoint: format!("{base_url}/auth/device"),
-            response_types_supported: vec!["code".to_string(), "code token".to_string()],
-            scopes_supported: vec!["offline_access".to_string()],
-            introspection_endpoint: format!("{base_url}/auth/introspect"),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum OAuthCodeRequest {
     Code {
         client_id: String,
         redirect_uri: Option<String>,
+        #[serde(default)]
+        nonce: Option<String>,
     },
     Device {
         code: String,

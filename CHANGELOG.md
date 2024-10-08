@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.10.4] - 2024-10-08
+
+To upgrade replace the `stalwart-mail` binary and then upgrade to the latest web-admin. 
+
+### Added
+- Detect and ban port scanners as well as other forms of abuse (#820).
+- ACME External Account Binding support (#379).
+
+### Changed
+- The settings `server.fail2ban.*` have been moved to `server.auto-ban.*`.
+- The event `security.brute-force-ban` is now `security.scan-ban`.
+
+### Fixed
+- Do not send SPF failures reports to local domains.
+- Allow `nonce` in OAuth code requests.
+- Warn when there are errors migrating domains rather than aborting migration.
+
+## [0.10.3] - 2024-10-07
+
+To upgrade replace the `stalwart-mail` binary and then upgrade to the latest web-admin. Enterprise users wishing to use the new LLM-powered spam filter should also upgrade the spam filter rules.
+
+### Added
+- AI-powered Spam filtering and Sieve scripting (Enterprise feature).
+
+### Changed
+- The untrusted Sieve interpreter now has the `vnd.stalwart.expressions` extension enabled by default. This allows Sieve users to use the `eval` function to evaluate expressions in their scripts. If you would like to disable this extension, you can do so by adding `vnd.stalwart.expressions` to `sieve.untrusted.disabled-capabilities`.
+
+### Fixed
+- S3-compatible backends: Retry on `5xx` errors.
+- OIDC: Include `nonce` parameter in `id_token` response.
+
+## [0.10.2] - 2024-10-02
+
+To upgrade first upgrade the webadmin and then replace the `stalwart-mail` binary. If you read these instructions too late, you can upgrade to the latest web-admin using `curl -k -u admin:yourpass https://yourserver/api/update/webadmin`.
+
+### Added
+- OpenID Connect server (#298).
+- OpenID Connect backend support (Enterprise feature).
+- OpenID Connect Dynamic Client Registration (#4)
+- OAuth 2.0 Dynamic Client Registration Protocol ([RFC7591](https://datatracker.ietf.org/doc/html/rfc7591)) (#136)
+- OAuth 2.0 Token Introspection ([RFC7662](https://datatracker.ietf.org/doc/html/rfc7662)).
+- Contact form submission handling.
+- `webadmin.path` setting to override unpack directory (#792).
+
+### Changed
+
+### Fixed
+- Missing `LIST-STATUS` from RFC5819 in IMAP capability responses (#816).
+- Do not allow tenant domains to be deleted if they have members (#812).
+- Tenant principal limits (#810).
+
 ## [0.10.1] - 2024-09-26
 
 To upgrade replace the `stalwart-mail` binary.
