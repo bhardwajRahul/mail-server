@@ -7,11 +7,12 @@
 use ahash::AHashMap;
 use jmap_tools::Property;
 use serde::{
-    Deserialize, Deserializer,
+    Deserialize, Deserializer, Serialize, Serializer,
     de::{self, MapAccess, Visitor},
 };
 use std::{borrow::Cow, fmt, str::FromStr};
 
+pub mod availability;
 pub mod changes;
 pub mod copy;
 pub mod get;
@@ -30,16 +31,22 @@ fn ahash_is_empty<K, V>(map: &AHashMap<K, V>) -> bool {
     map.is_empty()
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct PropertyWrapper<T>(pub T)
-where
-    T: serde::Serialize + Property;
+pub struct PropertyWrapper<T: Property>(pub T);
 
-impl<T: Property + serde::Serialize> From<T> for PropertyWrapper<T> {
+impl<T: Property> From<T> for PropertyWrapper<T> {
     fn from(value: T) -> Self {
         Self(value)
+    }
+}
+
+impl<T: Property> Serialize for PropertyWrapper<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.0.to_cow().as_ref())
     }
 }
 

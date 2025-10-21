@@ -1,6 +1,6 @@
 [package]
 name = "jmap"
-version = "0.13.4"
+version = "0.14.0"
 edition = "2024"
 resolver = "2"
 
@@ -18,6 +18,8 @@ directory = { path =  "../directory" }
 trc = { path = "../trc" }
 spam-filter = { path = "../spam-filter" }
 email = { path = "../email" }
+groupware = { path = "../groupware" }
+calcard = { version = "0.3" }
 smtp-proto = { version = "0.2" }
 mail-parser = { version = "0.11", features = ["full_encoding", "rkyv"] } 
 mail-builder = { version = "0.4" }

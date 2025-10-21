@@ -141,6 +141,10 @@ impl<T: BitmapItem> Bitmap<T> {
             _state: std::marker::PhantomData,
         }
     }
+
+    pub fn into_inner(self) -> u64 {
+        self.bitmap
+    }
 }
 
 impl<T: BitmapItem> From<ArchivedBitmap<T>> for Bitmap<T> {

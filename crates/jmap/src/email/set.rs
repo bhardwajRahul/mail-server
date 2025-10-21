@@ -8,10 +8,12 @@ use super::headers::{BuildHeader, ValueToHeader};
 use crate::{
     JmapMethods,
     blob::download::BlobDownload,
-    changes::state::MessageCacheState,
+    changes::state::JmapCacheState,
     email::{PatchResult, handle_email_patch, ingested_into_object},
 };
-use common::{Server, auth::AccessToken, storage::index::ObjectIndexBuilder};
+use common::{
+    Server, auth::AccessToken, ipc::PushNotification, storage::index::ObjectIndexBuilder,
+};
 use email::{
     cache::{MessageCacheFetch, email::MessageCacheAccess, mailbox::MailboxCacheAccess},
     mailbox::UidMailbox,
@@ -47,6 +49,7 @@ use trc::AddContext;
 use types::{
     acl::Acl,
     collection::{Collection, SyncCollection, VanishedCollection},
+    id::Id,
     keyword::Keyword,
     type_state::{DataType, StateChange},
 };
@@ -76,14 +79,16 @@ impl EmailSet for Server {
         let can_train_spam = self.email_bayes_can_train(access_token);
 
         // Obtain mailboxIds
-        let (can_add_mailbox_ids, can_delete_mailbox_ids, can_modify_message_ids) =
+        let (can_add_mailbox_ids, can_delete_mailbox_ids, can_modify_mailbox_ids) =
             if access_token.is_shared(account_id) {
                 (
                     cache.shared_mailboxes(access_token, Acl::AddItems).into(),
                     cache
                         .shared_mailboxes(access_token, Acl::RemoveItems)
                         .into(),
-                    cache.shared_messages(access_token, Acl::ModifyItems).into(),
+                    cache
+                        .shared_mailboxes(access_token, Acl::ModifyItems)
+                        .into(),
                 )
             } else {
                 (None, None, None)
@@ -694,14 +699,21 @@ impl EmailSet for Server {
                         id,
                         SetError::invalid_properties()
                             .with_property(EmailProperty::MailboxIds)
-                            .with_description(format!("mailboxId {mailbox_id} does not exist.")),
+                            .with_description(format!(
+                                "mailboxId {} does not exist.",
+                                Id::from(*mailbox_id)
+                            )),
                     );
                     continue 'create;
-                } else if matches!(&can_add_mailbox_ids, Some(ids) if !ids.contains(*mailbox_id)) {
+                } else if can_add_mailbox_ids
+                    .as_ref()
+                    .is_some_and(|ids| !ids.contains(*mailbox_id))
+                {
                     response.not_created.append(
                         id,
                         SetError::forbidden().with_description(format!(
-                            "You are not allowed to add messages to mailbox {mailbox_id}."
+                            "You are not allowed to add messages to mailbox {}.",
+                            Id::from(*mailbox_id)
                         )),
                     );
                     continue 'create;
@@ -867,7 +879,12 @@ impl EmailSet for Server {
             // Process keywords
             if has_keyword_changes {
                 // Verify permissions on shared accounts
-                if matches!(&can_modify_message_ids, Some(ids) if !ids.contains(document_id)) {
+                if can_modify_mailbox_ids.as_ref().is_some_and(|ids| {
+                    !new_data
+                        .mailboxes
+                        .iter()
+                        .any(|mb| ids.contains(mb.mailbox_id))
+                }) {
                     response.not_updated.append(
                         id,
                         SetError::forbidden()
@@ -907,7 +924,9 @@ impl EmailSet for Server {
                 for mailbox_id in new_data.added_mailboxes(data.inner) {
                     if cache.has_mailbox_id(&mailbox_id.mailbox_id) {
                         // Verify permissions on shared accounts
-                        if !matches!(&can_add_mailbox_ids, Some(ids) if !ids.contains(mailbox_id.mailbox_id))
+                        if can_add_mailbox_ids
+                            .as_ref()
+                            .is_none_or(|ids| ids.contains(mailbox_id.mailbox_id))
                         {
                             changed_mailboxes.insert(mailbox_id.mailbox_id, Vec::new());
                         } else {
@@ -915,7 +934,7 @@ impl EmailSet for Server {
                                 id,
                                 SetError::forbidden().with_description(format!(
                                     "You are not allowed to add messages to mailbox {}.",
-                                    mailbox_id.mailbox_id
+                                    Id::from(mailbox_id.mailbox_id)
                                 )),
                             );
                             continue 'update;
@@ -927,7 +946,7 @@ impl EmailSet for Server {
                                 .with_property(EmailProperty::MailboxIds)
                                 .with_description(format!(
                                     "mailboxId {} does not exist.",
-                                    mailbox_id.mailbox_id
+                                    Id::from(mailbox_id.mailbox_id)
                                 )),
                         );
                         continue 'update;
@@ -937,7 +956,9 @@ impl EmailSet for Server {
                 // Add all removed mailboxes to change list
                 for mailbox_id in new_data.removed_mailboxes(data.inner) {
                     // Verify permissions on shared accounts
-                    if !matches!(&can_delete_mailbox_ids, Some(ids) if !ids.contains(u32::from(mailbox_id.mailbox_id)))
+                    if can_delete_mailbox_ids
+                        .as_ref()
+                        .is_none_or(|ids| ids.contains(u32::from(mailbox_id.mailbox_id)))
                     {
                         changed_mailboxes
                             .entry(mailbox_id.mailbox_id.to_native())
@@ -1088,12 +1109,13 @@ impl EmailSet for Server {
         if let Some(change_id) = last_change_id {
             if response.updated.is_empty() && response.destroyed.is_empty() {
                 // Message ingest does not broadcast state changes
-                self.broadcast_state_change(
-                    StateChange::new(account_id, change_id)
+                self.broadcast_push_notification(PushNotification::StateChange(
+                    StateChange::new(account_id)
+                        .with_change_id(change_id)
                         .with_change(DataType::Email)
                         .with_change(DataType::Mailbox)
                         .with_change(DataType::Thread),
-                )
+                ))
                 .await;
             }
 
