@@ -18,6 +18,7 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
 - SQL directory: Return `Failed` instead of `Error` when the query returns no results.
 - Network: Attempt binding to IPv4 when binding to IPv6 fails with `EAFNOSUPPORT` error.
 - Bootstrap: Timeout after 30 seconds when probing the data store.
+- ACME: Include apex domains when requesting certificates for subdomains.
 
 ## [0.16.4] - 2026-05-05
 

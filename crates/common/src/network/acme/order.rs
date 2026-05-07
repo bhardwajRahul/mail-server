@@ -43,6 +43,8 @@ impl AcmeRequestBuilder {
             } else {
                 let server_name = server.core.network.server_name.as_str();
                 let domain_suffix = format!(".{domain}");
+                let matches_zone =
+                    |name: &str| name == domain || name.ends_with(&domain_suffix);
 
                 // Add technical domains
                 let mut domains = HOSTNAMES
@@ -50,15 +52,15 @@ impl AcmeRequestBuilder {
                     .map(|hostname| format!("{hostname}.{domain}"))
                     .collect::<BTreeSet<_>>();
 
-                // Add server name if it matches the domain
-                if server_name.ends_with(&domain_suffix) {
+                // Add server name if it matches the domain (including the apex itself)
+                if matches_zone(server_name) {
                     domains.insert(server_name.to_string());
                 }
 
                 // Add mail exchangers
                 for exchanger in &server.core.network.info.mxs {
                     if let Some(exchanger) = &exchanger.hostname
-                        && exchanger.ends_with(&domain_suffix)
+                        && matches_zone(exchanger)
                     {
                         domains.insert(exchanger.to_string());
                     }
@@ -67,7 +69,7 @@ impl AcmeRequestBuilder {
                 // Add service hosts
                 for (_, service) in &server.core.network.info.services {
                     if let Some(service) = &service.hostname
-                        && service.ends_with(&domain_suffix)
+                        && matches_zone(service)
                     {
                         domains.insert(service.to_string());
                     }
