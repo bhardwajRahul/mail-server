@@ -256,10 +256,16 @@ impl AcmeRequestBuilder {
                         let dns_parameters = dns_parameters.unwrap();
                         let domain = domain.strip_prefix("*.").unwrap_or(&domain);
 
+                        let zone = dns_parameters
+                            .origin
+                            .as_deref()
+                            .or_else(|| psl::domain_str(domain))
+                            .unwrap_or(domain);
+
                         dns_parameters
                             .updater
                             .create(
-                                dns_parameters.origin.as_deref().unwrap_or(domain),
+                                zone,
                                 &format!("_acme-challenge.{}", domain),
                                 DnsRecord::TXT(self.dns_proof(challenge)?),
                                 true,

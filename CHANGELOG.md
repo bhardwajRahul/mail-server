@@ -13,12 +13,14 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
 
 ## Fixed
 - JMAP: 
-  - Patching ids containing digits in JSON Pointers failes.
+  - Patching ids containing digits in JSON Pointers fails.
   - Patching nested objects with `null` values fails.
 - SQL directory: Return `Failed` instead of `Error` when the query returns no results.
 - Network: Attempt binding to IPv4 when binding to IPv6 fails with `EAFNOSUPPORT` error.
 - Bootstrap: Timeout after 30 seconds when probing the data store.
-- ACME: Include apex domains when requesting certificates for subdomains.
+- ACME: 
+  - Include apex domains when requesting certificates for subdomains.
+  - Use the public suffix list to determine the zone name when no origin is provided.
 
 ## [0.16.4] - 2026-05-05
 
