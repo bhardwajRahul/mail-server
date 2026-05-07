@@ -32,6 +32,7 @@ use registry::{
     },
     types::{ObjectImpl, list::List, map::Map},
 };
+use std::time::Duration;
 use store::{
     RegistryStore, SUBSPACE_PROPERTY, Store,
     registry::write::{RegistryWrite, RegistryWriteResult},
@@ -167,15 +168,13 @@ pub(crate) async fn bootstrap_set(
         }
 
         // Make sure this is blank deployment
-        match store
-            .get_value::<u32>(AnyKey {
-                subspace: SUBSPACE_PROPERTY,
-                key: vec![0u8],
-            })
-            .await
-        {
-            Ok(None) => {}
-            Ok(Some(DATABASE_SCHEMA_VERSION)) => {
+        let probe = store.get_value::<u32>(AnyKey {
+            subspace: SUBSPACE_PROPERTY,
+            key: vec![0u8],
+        });
+        match tokio::time::timeout(Duration::from_secs(30), probe).await {
+            Ok(Ok(None)) => {}
+            Ok(Ok(Some(DATABASE_SCHEMA_VERSION))) => {
                 set.response.not_updated.append(
                     id,
                     SetError::invalid_properties()
@@ -184,7 +183,7 @@ pub(crate) async fn bootstrap_set(
                 );
                 break;
             }
-            Ok(Some(_)) => {
+            Ok(Ok(Some(_))) => {
                 set.response.not_updated.append(
                     id,
                     SetError::invalid_properties()
@@ -197,7 +196,7 @@ pub(crate) async fn bootstrap_set(
                 );
                 break;
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 trc::error!(err.caused_by(trc::location!()));
                 set.response.not_updated.append(
                     id,
@@ -206,6 +205,21 @@ pub(crate) async fn bootstrap_set(
                         .with_description(
                             "Failed to initialize data store, check logs for details.",
                         ),
+                );
+                break;
+            }
+            Err(_elapsed) => {
+                set.response.not_updated.append(
+                    id,
+                    SetError::invalid_properties()
+                        .with_property(Property::DataStore)
+                        .with_description(concat!(
+                            "Timed out probing the data store after 30 seconds. ",
+                            "Check that the backend is reachable: for FoundationDB verify ",
+                            "the cluster file points at reachable coordinators, for SQL ",
+                            "verify the host and credentials, and for S3 verify the endpoint ",
+                            "and bucket. See the server logs for details."
+                        )),
                 );
                 break;
             }
