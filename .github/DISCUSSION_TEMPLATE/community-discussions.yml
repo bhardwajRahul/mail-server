@@ -18,16 +18,6 @@ body:
         I am trying to configure SMTP relay with Stalwart and I am running into ...
     validations:
       required: true
-  - type: textarea
-    attributes:
-      label: Additional context
-      description: |
-        Optional. Add anything else that may help the community help you, such as:
-        - Stalwart version and installation method
-        - Backend choices (data store, blob storage, directory)
-        - Relevant configuration snippets or log output
-    validations:
-      required: false
   - type: checkboxes
     attributes:
       label: Acknowledgement
