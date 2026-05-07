@@ -1,5 +1,5 @@
 name: Bug Report (auto-closed)
-description: Issues opened here are automatically closed. Please start a Discussion instead.
+description: Issues opened here are automatically closed. Please report bugs at support.stalw.art instead.
 labels: ["bug"]
 title: "🪲: "
 body:
@@ -9,19 +9,17 @@ body:
         > [!CAUTION]
         > **Issues opened directly in this repository are automatically closed and locked.**
         >
-        > All bug reports must first be triaged in the [Discussions](https://github.com/stalwartlabs/stalwart/discussions/new?category=issue-triage) section. If a maintainer confirms that your report is a genuine bug, **they will create an Issue on your behalf** — you do not need to (and should not) open one yourself.
+        > All bug reports must first be triaged at our support portal: **[support.stalw.art](https://support.stalw.art)**. If a maintainer confirms that your report is a genuine bug, they will create an Issue on your behalf; you do not need to (and should not) open one yourself.
         >
-        > This policy exists because a large volume of unverified, AI-generated bug reports has been consuming maintainer time that would otherwise be spent fixing real problems. Triaging in Discussions first ensures that every Issue tracked here represents a confirmed bug worth investigating.
+        > You can sign in to support.stalw.art with your existing GitHub account, so no separate registration is required.
         >
         > **What to do instead:**
-        > - Suspected bug? → [Start a Discussion in *Issue Triage*](https://github.com/stalwartlabs/stalwart/discussions/new?category=issue-triage)
-        > - Question or support? → [Start a Discussion in *Q&A*](https://github.com/stalwartlabs/stalwart/discussions/new?category=q-a)
-        > - Feature request? → [Start a Discussion in *Feature Requests & Ideas*](https://github.com/stalwartlabs/stalwart/discussions/new?category=feature-requests-and-ideas)
+        > - Suspected bug, question, or feature request? Post it at [support.stalw.art](https://support.stalw.art).
         >
         > If you proceed and submit this form anyway, your issue will be closed automatically and a comment will be posted explaining this policy.
   - type: checkboxes
     attributes:
       label: Acknowledgement
       options:
-        - label: I understand that this issue will be automatically closed and that I should open a Discussion instead.
+        - label: I understand that this issue will be automatically closed and that I should post my report at [support.stalw.art](https://support.stalw.art) instead.
           required: true

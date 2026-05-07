@@ -5,4 +5,4 @@ run.sh
 .*
 !.gitignore
 !.gitattributes
-
+!.github
