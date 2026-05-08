@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. This projec
 If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
 
 ## Added
+- `is_ip_in_cidr` expression function for CIDR matching.
 
 ## Changed
 - Bump `mail-auth` to 0.9 (which bumps `hickory-resolver` to 0.26).
@@ -22,7 +23,6 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
 - ACME: 
   - Include apex domains when requesting certificates for subdomains.
   - Use the public suffix list to determine the zone name when no origin is provided.
-- Registry: Reload `SieveUserScript` and `SieveSystemScript` entries after they are modified or deleted.
 
 ## [0.16.4] - 2026-05-05
 

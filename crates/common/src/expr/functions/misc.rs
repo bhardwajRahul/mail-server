@@ -7,7 +7,8 @@
 use crate::expr::Variable;
 use compact_str::CompactString;
 use mail_auth::common::resolver::ToReverseName;
-use std::net::IpAddr;
+use registry::types::ipmask::IpAddrOrMask;
+use std::{net::IpAddr, str::FromStr};
 
 pub(crate) fn fn_is_empty(v: Vec<Variable>) -> Variable {
     match &v[0] {
@@ -43,6 +44,16 @@ pub(crate) fn fn_is_ipv6_addr(v: Vec<Variable>) -> Variable {
         .as_str()
         .parse::<std::net::IpAddr>()
         .is_ok_and(|ip| matches!(ip, IpAddr::V6(_)))
+        .into()
+}
+
+pub(crate) fn fn_is_ip_in_cidr(v: Vec<Variable>) -> Variable {
+    let Ok(ip) = v[0].to_string().as_str().parse::<IpAddr>() else {
+        return false.into();
+    };
+    IpAddrOrMask::from_str(v[1].to_string().as_str())
+        .map(|mask| mask.matches(&ip))
+        .unwrap_or(false)
         .into()
 }
 
