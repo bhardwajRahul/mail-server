@@ -179,6 +179,21 @@ impl HttpResponse {
         self
     }
 
+    pub fn with_cors_unrestricted(mut self) -> Self {
+        self.builder = self
+            .builder
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+            .header(
+                header::ACCESS_CONTROL_ALLOW_HEADERS,
+                "Authorization, Content-Type, Accept, X-Requested-With",
+            )
+            .header(
+                header::ACCESS_CONTROL_ALLOW_METHODS,
+                "POST, GET, PATCH, PUT, DELETE, HEAD, OPTIONS",
+            );
+        self
+    }
+
     pub fn size(&self) -> usize {
         match &self.body {
             HttpResponseBody::Text(value) => value.len(),

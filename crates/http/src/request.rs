@@ -321,7 +321,8 @@ impl ParseHttp for Server {
                         .await?
                         .into_bytes(),
                     )
-                    .into_http_response());
+                    .into_http_response()
+                    .with_cors_unrestricted());
                 }
                 ("mail-v1.xml", &Method::GET) => {
                     // Limit anonymous requests
@@ -344,10 +345,10 @@ impl ParseHttp for Server {
                     return self
                         .handle_autoconfig_request(req.uri().query())
                         .await
-                        .map(|resource| resource.into_http_response());
+                        .map(|resource| resource.into_http_response().with_cors_unrestricted());
                 }
                 (_, &Method::OPTIONS) => {
-                    return Ok(HttpResponse::new(StatusCode::NO_CONTENT));
+                    return Ok(HttpResponse::new(StatusCode::NO_CONTENT).with_cors_unrestricted());
                 }
                 _ => (),
             },

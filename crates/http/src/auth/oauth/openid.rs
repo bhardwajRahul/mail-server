@@ -99,6 +99,7 @@ impl OpenIdHandler for Server {
             code_challenge_methods_supported: &["S256"],
             issuer: base_url.to_string(),
         })
-        .into_http_response())
+        .into_http_response()
+        .with_cors_unrestricted())
     }
 }
