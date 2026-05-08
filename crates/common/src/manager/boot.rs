@@ -128,7 +128,9 @@ impl BootManager {
         let mut bootstrap = Bootstrap::new(registry).await;
 
         // Add safe defaults if missing
-        bootstrap.insert_safe_defaults().await;
+        if import_export == StoreOp::None {
+            bootstrap.insert_safe_defaults().await;
+        }
 
         // Start listeners
         let mut servers = Listeners::parse(&mut bootstrap).await;
