@@ -22,6 +22,7 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
 - ACME: 
   - Include apex domains when requesting certificates for subdomains.
   - Use the public suffix list to determine the zone name when no origin is provided.
+- Registry: Reload `SieveUserScript` and `SieveSystemScript` entries after they are modified or deleted.
 
 ## [0.16.4] - 2026-05-05
 

@@ -28,8 +28,11 @@ use crate::registry::{
     },
 };
 use common::{
-    Server, auth::AccessToken, cache::invalidate::CacheInvalidationBuilder,
-    expr::if_block::BootstrapExprExt, ipc::CacheInvalidation,
+    Server,
+    auth::AccessToken,
+    cache::invalidate::CacheInvalidationBuilder,
+    expr::if_block::BootstrapExprExt,
+    ipc::{BroadcastEvent, CacheInvalidation, RegistryChange},
 };
 use http_proto::HttpSessionData;
 use jmap_proto::{
@@ -656,9 +659,8 @@ impl RegistrySet for Server {
                                         .await
                                         .caused_by(trc::location!())?
                                     {
-                                        cache_invalidator.invalidate(
-                                            CacheInvalidation::AccessToken(sharee_id),
-                                        );
+                                        cache_invalidator
+                                            .invalidate(CacheInvalidation::AccessToken(sharee_id));
                                     }
 
                                     schedule_account_destruction(set.server, id, account).await?;
@@ -678,6 +680,30 @@ impl RegistrySet for Server {
 
                 // Finalize cache invalidation
                 self.invalidate_caches(cache_invalidator).await?;
+
+                // Sieve scripts: refresh the in-memory compiled script maps
+                if matches!(
+                    object_type,
+                    ObjectType::SieveUserScript | ObjectType::SieveSystemScript
+                ) && (!set.response.created.is_empty()
+                    || !set.response.updated.is_empty()
+                    || !set.response.destroyed.is_empty())
+                {
+                    let result = Box::pin(
+                        set.server
+                            .reload_registry(RegistryChange::Reload(object_type)),
+                    )
+                    .await?;
+                    if !result.has_errors() {
+                        set.server
+                            .cluster_broadcast(BroadcastEvent::RegistryChange(
+                                RegistryChange::Reload(object_type),
+                            ))
+                            .await;
+                    } else {
+                        result.log();
+                    }
+                }
 
                 Ok(set.into_response())
             }
