@@ -14,7 +14,7 @@ use crate::{
 };
 use base64::{Engine, engine::general_purpose};
 use directory::{
-    Credentials, Directory,
+    Credentials, Directory, Recipient,
     core::secret::{SecretVerificationResult, verify_mfa_secret_hash, verify_secret_hash},
 };
 use registry::schema::{
@@ -264,8 +264,19 @@ impl Server {
                         Permission::Authenticate,
                     ])?;
                     let address = username.account().address();
-                    let master_address = username.account().address();
-                    if let Some(account_id) = self.account_id_from_email(address, false).await? {
+                    let master_address = auth_as_address;
+                    let mut account_id = self.account_id_from_email(address, false).await?;
+                    if account_id.is_none()
+                        && let Some(impersonated_domain) = username.account().domain()
+                        && let Some(impersonated_domain_cache) =
+                            self.domain(impersonated_domain).await?
+                        && let Some(directory) =
+                            self.get_directory_for_cached_domain(&impersonated_domain_cache)
+                        && let Recipient::Account(account) = directory.recipient(address).await?
+                    {
+                        account_id = Some(self.synchronize_account(account).await?.id);
+                    }
+                    if let Some(account_id) = account_id {
                         trc::event!(
                             Auth(trc::AuthEvent::Success),
                             AccountName = address.to_string(),
