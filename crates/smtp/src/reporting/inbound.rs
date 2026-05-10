@@ -38,14 +38,20 @@ impl<T: AsyncWrite + AsyncRead + Unpin> Session<T> {
     pub fn is_report(&self) -> bool {
         for addr_match in &self.server.core.smtp.report.analysis.addresses {
             for addr in &self.data.rcpt_to {
+                let rcpt_addr = addr
+                    .dsn_info
+                    .as_ref()
+                    .and_then(|v| v.strip_prefix("rfc822;"))
+                    .unwrap_or(&addr.address_lcase);
+
                 match addr_match {
-                    AddressMatch::StartsWith(prefix) if addr.address_lcase.starts_with(prefix) => {
+                    AddressMatch::StartsWith(prefix) if rcpt_addr.starts_with(prefix) => {
                         return true;
                     }
-                    AddressMatch::EndsWith(suffix) if addr.address_lcase.ends_with(suffix) => {
+                    AddressMatch::EndsWith(suffix) if rcpt_addr.ends_with(suffix) => {
                         return true;
                     }
-                    AddressMatch::Equals(value) if addr.address_lcase.eq(value) => return true,
+                    AddressMatch::Equals(value) if rcpt_addr.eq(value) => return true,
                     _ => (),
                 }
             }
