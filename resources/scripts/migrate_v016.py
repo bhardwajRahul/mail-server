@@ -721,6 +721,8 @@ class Converter:
         blob_store = self._build_blob_store()
         in_memory_store = self._build_in_memory_store()
         search_store = self._build_search_store()
+        metrics_store = self._build_metrics_store()
+        tracing_store = self._build_tracing_store()
         enterprise = self._build_enterprise()
         system_settings = self._build_system_settings()
 
@@ -737,6 +739,10 @@ class Converter:
             out["InMemoryStore"] = in_memory_store
         if search_store is not None:
             out["SearchStore"] = search_store
+        if metrics_store is not None:
+            out["MetricsStore"] = metrics_store
+        if tracing_store is not None:
+            out["TracingStore"] = tracing_store
         if tenants:
             out["Tenant"] = tenants
         if domains:
@@ -1175,6 +1181,19 @@ class Converter:
             f"(DataStore requires rocksdb/sqlite/foundationdb/postgresql/mysql)"
         )
 
+    def _is_same_kv_store_as_data(self, sub: dict[str, str]) -> bool:
+        data_sid = self._referenced_store_id("storage.data")
+        if data_sid is None:
+            return False
+        data_sub = self._stores().get(data_sid)
+        if data_sub is None:
+            return False
+        if data_sub.get("type", "").strip().lower() != sub.get("type", "").strip().lower():
+            return False
+        data_path = data_sub.get("path", "").strip()
+        sub_path = sub.get("path", "").strip()
+        return bool(data_path) and data_path == sub_path
+
     def _build_blob_store(self) -> dict[str, Any] | None:
         sid = self._referenced_store_id("storage.blob")
         if sid is None:
@@ -1201,8 +1220,21 @@ class Converter:
             return self._build_postgresql(sub, for_blob=True)
         if stype == "mysql":
             return self._build_mysql(sub, for_blob=True)
-
-        return {"@type": "Default"}
+        if stype in ("rocksdb", "sqlite"):
+            if self._is_same_kv_store_as_data(sub):
+                return {"@type": "Default"}
+            raise ConvertError(
+                f"storage.blob points at store {sid!r} of type {stype!r}, "
+                f"but v0.16 does not support a separate {stype} blob store. "
+                "Consolidate blob data into the data store, or configure a "
+                "filesystem/s3/azure/foundationdb/postgresql/mysql blob "
+                "store and migrate the blobs before running this script."
+            )
+        raise ConvertError(
+            f"storage.blob points at store {sid!r} of unsupported type "
+            f"{stype!r} (BlobStore requires s3/azure/fs/foundationdb/"
+            "postgresql/mysql, or rocksdb/sqlite sharing the data store path)"
+        )
 
     def _build_in_memory_store(self) -> dict[str, Any] | None:
         sid = self._referenced_store_id("storage.lookup")
@@ -1249,7 +1281,74 @@ class Converter:
             return self._build_postgresql(sub, for_search=True)
         if stype == "mysql":
             return self._build_mysql(sub, for_search=True)
-        return {"@type": "Default"}
+        if stype in ("rocksdb", "sqlite"):
+            if self._is_same_kv_store_as_data(sub):
+                return {"@type": "Default"}
+            raise ConvertError(
+                f"storage.fts points at store {sid!r} of type {stype!r}, "
+                f"but v0.16 does not support a separate {stype} search "
+                "store. Consolidate the full-text index into the data store, "
+                "or configure an elasticsearch/meilisearch/foundationdb/"
+                "postgresql/mysql search store before running this script."
+            )
+        raise ConvertError(
+            f"storage.fts points at store {sid!r} of unsupported type "
+            f"{stype!r} (SearchStore requires elasticsearch/meilisearch/"
+            "foundationdb/postgresql/mysql, or rocksdb/sqlite sharing the "
+            "data store path)"
+        )
+
+    def _build_history_store(
+        self, store_key: str, enable_key: str, role: str
+    ) -> dict[str, Any] | None:
+        enable = parse_bool(self.settings.get(enable_key))
+        sid = self._referenced_store_id(store_key)
+        if enable is False:
+            return {"@type": "Disabled"}
+        if sid is None:
+            if enable is True:
+                return {"@type": "Default"}
+            return None
+        data_sid = self._referenced_store_id("storage.data")
+        if sid == data_sid:
+            return {"@type": "Default"}
+        stores = self._stores()
+        if sid not in stores:
+            raise ConvertError(
+                f"{store_key} = {sid!r} but no store.{sid}.type is defined"
+            )
+        sub = stores[sid]
+        stype = sub.get("type", "").strip().lower()
+        if stype == "foundationdb":
+            return self._build_foundationdb(sub)
+        if stype == "postgresql":
+            return self._build_postgresql(sub)
+        if stype == "mysql":
+            return self._build_mysql(sub)
+        if stype in ("rocksdb", "sqlite"):
+            if self._is_same_kv_store_as_data(sub):
+                return {"@type": "Default"}
+            raise ConvertError(
+                f"{store_key} points at store {sid!r} of type {stype!r}, "
+                f"but v0.16 does not support a separate {stype} {role} "
+                "store. Point this setting at the data store, or configure "
+                "a foundationdb/postgresql/mysql store."
+            )
+        raise ConvertError(
+            f"{store_key} points at store {sid!r} of unsupported type "
+            f"{stype!r} ({role} store requires foundationdb/postgresql/"
+            "mysql, or rocksdb/sqlite sharing the data store path)"
+        )
+
+    def _build_metrics_store(self) -> dict[str, Any] | None:
+        return self._build_history_store(
+            "metrics.history.store", "metrics.history.enable", "metrics"
+        )
+
+    def _build_tracing_store(self) -> dict[str, Any] | None:
+        return self._build_history_store(
+            "tracing.history.store", "tracing.history.enable", "tracing"
+        )
 
     def _build_rocksdb(self, sub: dict[str, str]) -> dict[str, Any]:
         path = sub.get("path", "").strip()
@@ -1766,6 +1865,8 @@ SINGLETON_ORDER = [
     "BlobStore",
     "InMemoryStore",
     "SearchStore",
+    "MetricsStore",
+    "TracingStore",
 ]
 
 COLLECTION_ORDER = [
