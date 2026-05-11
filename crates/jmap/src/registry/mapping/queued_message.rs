@@ -129,7 +129,12 @@ pub(crate) async fn queued_message_set(
                 .iter_mut()
                 .find(|r| r.address.as_ref() == address.as_str())
             else {
-                continue;
+                set.response.not_updated.append(
+                    id,
+                    SetError::invalid_properties()
+                        .with_description(format!("Recipient '{address}' does not exist")),
+                );
+                continue 'outer;
             };
             if rcpt.orcpt.as_deref() != queued_rcpt.orcpt.as_deref() {
                 queued_rcpt.orcpt = rcpt.orcpt.as_deref().map(|v| v.into());
@@ -164,11 +169,12 @@ pub(crate) async fn queued_message_set(
                 }
             }
 
-            if let Some(next_retry) = set_next_retry
-                && !matches!(queued_rcpt.status, Status::PermanentFailure(_))
-            {
-                queued_rcpt.retry.due = next_retry.timestamp() as u64;
-                has_changes = true;
+            if let Some(next_retry) = set_next_retry {
+                let new_due = next_retry.timestamp() as u64;
+                if queued_rcpt.retry.due != new_due {
+                    queued_rcpt.retry.due = new_due;
+                    has_changes = true;
+                }
             }
 
             if matches!(rcpt.status, RecipientStatus::Scheduled)
@@ -180,14 +186,14 @@ pub(crate) async fn queued_message_set(
         }
 
         if has_changes {
-            // Delete message if there are no pending deliveries
             let message = MessageWrapper::new(queued_message, queue_id, QueueName::default());
-            let is_success = if message.message.recipients.iter().any(|recipient| {
+            let has_pending = message.message.recipients.iter().any(|recipient| {
                 matches!(
                     recipient.status,
                     Status::TemporaryFailure(_) | Status::Scheduled
                 )
-            }) {
+            });
+            let is_success = if has_pending || prev_event.is_none() {
                 message.save_changes(set.server, prev_event).await
             } else {
                 message.remove(set.server, prev_event).await

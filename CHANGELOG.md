@@ -25,7 +25,9 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
 - ACME: 
   - Include apex domains when requesting certificates for subdomains.
   - Use the public suffix list to determine the zone name when no origin is provided.
-- MTA: Process reports using original `RCPT` before rewriting.
+- MTA:
+  - Allow rescheduling recipients with permanent failures.
+  - Process reports using original `RCPT` before rewriting.
 
 ## [0.16.4] - 2026-05-05
 
