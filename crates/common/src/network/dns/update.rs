@@ -7,18 +7,13 @@
 use crate::{Core, Server};
 use base64::{Engine, engine::general_purpose};
 use dns_update::{
-    Algorithm, DnsRecord, DnsRecordType, TsigAlgorithm,
-    dnssec::{
-        self, SigningKey,
-        crypto::{EcdsaSigningKey, Ed25519SigningKey},
-    },
+    DnsRecord, DnsRecordType, TsigAlgorithm,
     providers::{ovh::OvhEndpoint, rfc2136::DnsAddress},
 };
 use registry::schema::{
     enums,
     structs::{DnsManagement, DnsServer, Domain},
 };
-use rustls_pki_types::PrivatePkcs8KeyDer;
 use std::{
     net::SocketAddr,
     sync::Arc,
@@ -80,60 +75,8 @@ impl DnsUpdater {
                 )
                 .map_err(|err| format!("Failed to build DNS updater: {}", err))?,
             }),
-            DnsServer::Sig0(server) => {
-                let key_bytes = server.key.secret().await?;
-                let pem_parsed = pem::parse(key_bytes.as_bytes())
-                    .map_err(|err| format!("Failed to parse PEM key: {}", err))?;
-                let pkcs8_der = PrivatePkcs8KeyDer::from(pem_parsed.contents());
-                let signing_key: Box<dyn SigningKey> = match server.sig0_algorithm {
-                    enums::Sig0Algorithm::EcdsaP256Sha256 => Box::new(
-                        EcdsaSigningKey::from_pkcs8(&pkcs8_der, dnssec::Algorithm::ECDSAP256SHA256)
-                            .map_err(|err| {
-                                format!("Failed to build ECDSA P-256 signing key: {}", err)
-                            })?,
-                    ),
-                    enums::Sig0Algorithm::EcdsaP384Sha384 => Box::new(
-                        EcdsaSigningKey::from_pkcs8(&pkcs8_der, dnssec::Algorithm::ECDSAP384SHA384)
-                            .map_err(|err| {
-                                format!("Failed to build ECDSA P-384 signing key: {}", err)
-                            })?,
-                    ),
-                    enums::Sig0Algorithm::Ed25519 => {
-                        Box::new(Ed25519SigningKey::from_pkcs8(&pkcs8_der).map_err(|err| {
-                            format!("Failed to build Ed25519 signing key: {}", err)
-                        })?)
-                    }
-                };
-
-                #[allow(deprecated)]
-                Ok(DnsUpdater {
-                    polling_interval: server.polling_interval.into_inner(),
-                    propagation_timeout: server.propagation_timeout.into_inner(),
-                    propagation_delay: server.propagation_delay.map(|d| d.into_inner()),
-                    ttl: server.ttl.into_inner(),
-                    core,
-                    updater: dns_update::DnsUpdater::new_rfc2136_sig0(
-                        match server.protocol {
-                            enums::IpProtocol::Udp => DnsAddress::Tcp(SocketAddr::new(
-                                server.host.into_inner(),
-                                server.port as u16,
-                            )),
-                            enums::IpProtocol::Tcp => DnsAddress::Udp(SocketAddr::new(
-                                server.host.into_inner(),
-                                server.port as u16,
-                            )),
-                        },
-                        server.signer_name,
-                        signing_key,
-                        server.public_key,
-                        match server.sig0_algorithm {
-                            enums::Sig0Algorithm::EcdsaP256Sha256 => Algorithm::ECDSAP256SHA256,
-                            enums::Sig0Algorithm::EcdsaP384Sha384 => Algorithm::ECDSAP384SHA384,
-                            enums::Sig0Algorithm::Ed25519 => Algorithm::ED25519,
-                        },
-                    )
-                    .map_err(|err| format!("Failed to build DNS updater: {}", err))?,
-                })
+            DnsServer::Sig0(_) => {
+                Err("RFC 2136 with SIG(0) authentication is no longer supported".into())
             }
             DnsServer::Cloudflare(server) => {
                 let updater = {

@@ -274,7 +274,7 @@ impl Server {
                             self.get_directory_for_cached_domain(&impersonated_domain_cache)
                         && let Recipient::Account(account) = directory.recipient(address).await?
                     {
-                        account_id = Some(self.synchronize_account(account).await?.id);
+                        account_id = Some(Box::pin(self.synchronize_account(account)).await?.id);
                     }
                     if let Some(account_id) = account_id {
                         trc::event!(

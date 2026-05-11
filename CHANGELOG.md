@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.16.5] - 2026-05-XX
+## [0.16.5] - 2026-05-11
 
 If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
 
@@ -11,6 +11,7 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
 
 ## Changed
 - Bump `mail-auth` to 0.9 (which bumps `hickory-resolver` to 0.26).
+- Deprecated RFC2136 SIG(0) support as it is no longer supported by `hickory`.
 
 ## Fixed
 - JMAP: 
@@ -29,6 +30,14 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
   - Allow rescheduling recipients with permanent failures.
   - Process reports using original `RCPT` before rewriting.
 - Autodiscover v2 endpoint unreachable.
+- DNS update (via `dns-update` crate):
+  - OVH + Google Cloud DNS: Fix FQDN handling for `MX` and `SRV` records.
+  - Route53: Fix changeset error resolution.
+  - deSEC: Use empty `subname` for apex records instead of `@`, which the API rejects.
+  - Cloudflare: Wrap `TXT` record content in double quotes (RFC 1035) to suppress dashboard warnings.
+- iCalendar/JSCalendar (via `calcard` crate):
+  - Support `STATUS:CANCELLED` mapping from `VTODO` to JSCalendar.
+  - Fixed duration parsing for zero duration `PT0S`.
 
 ## [0.16.4] - 2026-05-05
 
