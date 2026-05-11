@@ -28,6 +28,7 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
 - MTA:
   - Allow rescheduling recipients with permanent failures.
   - Process reports using original `RCPT` before rewriting.
+- Autodiscover v2 endpoint unreachable.
 
 ## [0.16.4] - 2026-05-05
 

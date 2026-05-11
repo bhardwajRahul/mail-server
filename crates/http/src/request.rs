@@ -452,11 +452,9 @@ impl ParseHttp for Server {
                 }
             }
             "autodiscover" | "Autodiscover" | "AutoDiscover" => {
+                let document_name = path.next().unwrap_or_default();
                 if req.method() == Method::POST
-                    && path
-                        .next()
-                        .unwrap_or_default()
-                        .eq_ignore_ascii_case("autodiscover.xml")
+                    && document_name.eq_ignore_ascii_case("autodiscover.xml")
                 {
                     // Limit anonymous requests
                     self.is_http_anonymous_request_allowed(session.remote_ip)
@@ -468,12 +466,7 @@ impl ParseHttp for Server {
                         )
                         .await
                         .map(|resource| resource.into_http_response());
-                } else if req.method() == Method::POST
-                    && path
-                        .next()
-                        .unwrap_or_default()
-                        .eq_ignore_ascii_case("autodiscover.json")
-                {
+                } else if document_name.eq_ignore_ascii_case("autodiscover.json") {
                     // Limit anonymous requests
                     self.is_http_anonymous_request_allowed(session.remote_ip)
                         .await?;

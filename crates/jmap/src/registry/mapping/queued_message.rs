@@ -186,14 +186,14 @@ pub(crate) async fn queued_message_set(
         }
 
         if has_changes {
+            // Delete message if there are no pending deliveries
             let message = MessageWrapper::new(queued_message, queue_id, QueueName::default());
-            let has_pending = message.message.recipients.iter().any(|recipient| {
+            let is_success = if message.message.recipients.iter().any(|recipient| {
                 matches!(
                     recipient.status,
                     Status::TemporaryFailure(_) | Status::Scheduled
                 )
-            });
-            let is_success = if has_pending || prev_event.is_none() {
+            }) {
                 message.save_changes(set.server, prev_event).await
             } else {
                 message.remove(set.server, prev_event).await
