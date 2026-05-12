@@ -12,6 +12,7 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
 
 ## Fixed
 - DAV: `acl-principal-prop-set` REPORT enforced the wrong privilege.
+- JMAP: `Thread/get` did not filter by per-mailbox ACLs on shared accounts.
 
 
 ## [0.16.5] - 2026-05-11

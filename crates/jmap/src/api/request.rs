@@ -247,7 +247,7 @@ impl RequestHandler for Server {
                     set_account_id_if_missing(&mut req.account_id, access_token);
                     access_token.assert_has_access(req.account_id, Collection::Email)?;
 
-                    self.thread_get(*req).await?.into()
+                    self.thread_get(*req, access_token).await?.into()
                 }
                 GetRequestMethod::Identity(mut req) => {
                     set_account_id_if_missing(&mut req.account_id, access_token);

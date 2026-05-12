@@ -47,11 +47,11 @@ impl DnsUpdater {
                 core,
                 updater: dns_update::DnsUpdater::new_rfc2136_tsig(
                     match server.protocol {
-                        enums::IpProtocol::Udp => DnsAddress::Tcp(SocketAddr::new(
+                        enums::IpProtocol::Tcp => DnsAddress::Tcp(SocketAddr::new(
                             server.host.into_inner(),
                             server.port as u16,
                         )),
-                        enums::IpProtocol::Tcp => DnsAddress::Udp(SocketAddr::new(
+                        enums::IpProtocol::Udp => DnsAddress::Udp(SocketAddr::new(
                             server.host.into_inner(),
                             server.port as u16,
                         )),

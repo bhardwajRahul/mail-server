@@ -5,8 +5,8 @@
  */
 
 use crate::changes::state::StateManager;
-use common::Server;
-use email::cache::MessageCacheFetch;
+use common::{Server, auth::AccessToken};
+use email::cache::{MessageCacheFetch, email::MessageCacheAccess};
 use jmap_proto::{
     method::get::{GetRequest, GetResponse},
     object::thread::{Thread, ThreadProperty, ThreadValue},
@@ -21,12 +21,13 @@ use store::{
     write::SearchIndex,
 };
 use trc::AddContext;
-use types::{collection::SyncCollection, id::Id};
+use types::{acl::Acl, collection::SyncCollection, id::Id};
 
 pub trait ThreadGet: Sync + Send {
     fn thread_get(
         &self,
         request: GetRequest<Thread>,
+        access_token: &AccessToken,
     ) -> impl Future<Output = trc::Result<GetResponse<Thread>>> + Send;
 }
 
@@ -34,17 +35,27 @@ impl ThreadGet for Server {
     async fn thread_get(
         &self,
         mut request: GetRequest<Thread>,
+        access_token: &AccessToken,
     ) -> trc::Result<GetResponse<Thread>> {
         let account_id = request.account_id.document_id();
-        let mut thread_map: AHashMap<u32, RoaringBitmap> = AHashMap::with_capacity(32);
-        let mut all_ids = RoaringBitmap::new();
-        for item in &self
+        let cache = self
             .get_cached_messages(account_id)
             .await
-            .caused_by(trc::location!())?
-            .emails
-            .items
-        {
+            .caused_by(trc::location!())?;
+        let shared_ids = if access_token.is_shared(account_id) {
+            Some(cache.shared_messages(access_token, Acl::ReadItems))
+        } else {
+            None
+        };
+        let mut thread_map: AHashMap<u32, RoaringBitmap> = AHashMap::with_capacity(32);
+        let mut all_ids = RoaringBitmap::new();
+        for item in &cache.emails.items {
+            if shared_ids
+                .as_ref()
+                .is_some_and(|ids| !ids.contains(item.document_id))
+            {
+                continue;
+            }
             thread_map
                 .entry(item.thread_id)
                 .or_default()
