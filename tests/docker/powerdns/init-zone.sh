@@ -4,13 +4,20 @@ set -e
 # Wait for the SQLite database to be ready
 sleep 2
 
-# Create the zone
+# Skip if already initialized
+if pdnsutil list-zone stalwart.test >/dev/null 2>&1; then
+    echo "Zone stalwart.test already exists; skipping init."
+    exit 0
+fi
+
+# Create the zone with default SOA + NS
 pdnsutil create-zone stalwart.test ns1.stalwart.test
 pdnsutil set-kind stalwart.test native
 
+# Replace the default SOA with our own
+pdnsutil replace-rrset stalwart.test '' SOA 'ns1.stalwart.test. admin.stalwart.test. 2024010101 3600 900 604800 86400'
+
 # Add basic records
-pdnsutil add-record stalwart.test '' SOA 'ns1.stalwart.test. admin.stalwart.test. 2024010101 3600 900 604800 86400'
-pdnsutil add-record stalwart.test '' NS 'ns1.stalwart.test.'
 pdnsutil add-record stalwart.test 'ns1' A '127.0.0.1'
 pdnsutil add-record stalwart.test '' A '127.0.0.1'
 pdnsutil add-record stalwart.test '' MX '10 mail.stalwart.test.'
@@ -24,9 +31,10 @@ pdnsutil add-record stalwart.test '_25._tcp.mail' TLSA '3 1 1 000000000000000000
 # Key: stalwart-update-key / HMAC-SHA256
 # Base64 secret: c3RhbHdhcnQtdGVzdC10c2lnLXNlY3JldC1rZXkxMjM0NTY3ODkw
 pdnsutil import-tsig-key stalwart-update-key hmac-sha256 'c3RhbHdhcnQtdGVzdC10c2lnLXNlY3JldC1rZXkxMjM0NTY3ODkw'
-pdnsutil activate-tsig-key stalwart.test stalwart-update-key master
+pdnsutil activate-tsig-key stalwart.test stalwart-update-key primary
 pdnsutil set-meta stalwart.test TSIG-ALLOW-DNSUPDATE stalwart-update-key
 pdnsutil set-meta stalwart.test ALLOW-DNSUPDATE-FROM '0.0.0.0/0'
+
 
 echo "PowerDNS zone setup complete."
 echo "TSIG key name:      stalwart-update-key"

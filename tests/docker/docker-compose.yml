@@ -241,8 +241,7 @@ services:
     volumes:
       - ./powerdns/pdns.conf:/etc/powerdns/pdns.d/stalwart.conf:ro
       - ./powerdns/init-zone.sh:/etc/powerdns/init-zone.sh:ro
-    tmpfs:
-      - /var/lib/powerdns
+      - pdns-data:/var/lib/powerdns
 
   powerdns-init:
     image: powerdns/pdns-auth-49:latest
@@ -251,6 +250,7 @@ services:
     volumes:
       - ./powerdns/entrypoint.sh:/init.sh:ro
       - ./powerdns/init-zone.sh:/etc/powerdns/init-zone.sh:ro
+      - pdns-data:/var/lib/powerdns
     entrypoint: [ "bash", "/init.sh" ]
     network_mode: "service:powerdns"
 
@@ -271,4 +271,6 @@ volumes:
   certs:
     driver: local
   fdb-config:
+    driver: local
+  pdns-data:
     driver: local
