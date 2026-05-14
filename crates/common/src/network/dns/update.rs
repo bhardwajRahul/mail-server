@@ -274,6 +274,7 @@ impl DnsUpdater {
                 Hostname = name.to_string(),
                 Reason = err.to_string(),
                 Details = origin.to_string(),
+                Type = record.as_type().as_str(),
             );
         }
 
@@ -290,6 +291,8 @@ impl DnsUpdater {
             Dns(DnsEvent::RecordCreated),
             Hostname = name.to_string(),
             Details = origin.to_string(),
+            Type = record.as_type().as_str(),
+            Value = format!("{:?}", record),
         );
 
         if verify && let DnsRecord::TXT(txt_record) = &record {
@@ -320,6 +323,8 @@ impl DnsUpdater {
                                 Hostname = name.to_string(),
                                 Details = origin.to_string(),
                                 Result = result.to_string(),
+                                Type = record.as_type().as_str(),
+                                Value = format!("{:?}", record),
                             );
                         }
                     }
@@ -329,6 +334,8 @@ impl DnsUpdater {
                             Hostname = name.to_string(),
                             Details = origin.to_string(),
                             Reason = err.to_string(),
+                            Type = record.as_type().as_str(),
+                            Value = format!("{:?}", record),
                         );
                     }
                 }
@@ -341,12 +348,16 @@ impl DnsUpdater {
                     Dns(DnsEvent::RecordPropagated),
                     Hostname = name.to_string(),
                     Details = origin.to_string(),
+                    Type = record.as_type().as_str(),
+                    Value = format!("{:?}", record),
                 );
             } else {
                 trc::event!(
                     Dns(DnsEvent::RecordPropagationTimeout),
                     Hostname = name.to_string(),
                     Details = origin.to_string(),
+                    Type = record.as_type().as_str(),
+                    Value = format!("{:?}", record),
                 );
             }
 
@@ -371,6 +382,7 @@ impl DnsUpdater {
                     Hostname = name.to_string(),
                     Reason = err.to_string(),
                     Details = origin.to_string(),
+                    Type = record_type.as_str(),
                 );
                 Err(err.to_string())
             }
