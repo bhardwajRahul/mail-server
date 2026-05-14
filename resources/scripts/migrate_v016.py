@@ -876,6 +876,7 @@ class Converter:
             if parts and parts[1]:
                 return parts[1]
 
+        fallback: str | None = None
         for addr in pv_list(p.get("emails")):
             if not isinstance(addr, str):
                 continue
@@ -883,9 +884,30 @@ class Converter:
             if parts is None:
                 continue
             local, dom = parts
-            if local and local == nm and dom:
+            if not dom:
+                continue
+            if local and local == nm:
                 return dom
-        return None
+            if fallback is None:
+                fallback = dom
+        return fallback
+
+    def _tenant_default_domain_cid(self, p: dict[str, Any]) -> str | None:
+        tname = pv_string(p.get("tenant"))
+        if not tname:
+            return None
+        t_cid = self.tenant_name_to_cid.get(tname)
+        if t_cid is None:
+            return None
+        candidates = [
+            (self.domain_cid_to_name.get(cid, ""), cid)
+            for cid, owner in self.domain_cid_to_tenant_cid.items()
+            if owner == t_cid
+        ]
+        if not candidates:
+            return None
+        candidates.sort()
+        return candidates[0][1]
 
     def _resolve_name_and_domain(self, p: dict[str, Any]) -> tuple[str, str]:
         nm = pv_string(p.get("name"))
@@ -904,6 +926,10 @@ class Converter:
             if dom not in self.domain_name_to_cid:
                 raise ConvertError(f"domain {dom!r} missing from domain index")
             return (nm, self.domain_name_to_cid[dom])
+
+        tenant_default = self._tenant_default_domain_cid(p)
+        if tenant_default is not None:
+            return (nm, tenant_default)
 
         if self.default_domain_cid is None:
             raise ConvertError(
