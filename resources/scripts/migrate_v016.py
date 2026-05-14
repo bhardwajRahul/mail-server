@@ -416,7 +416,7 @@ def split_email(addr: str) -> tuple[str, str] | None:
         return None
     return (local, domain)
 
-_LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+_LABEL_RE = re.compile(r"^[^\W_](?:(?:[^\W_]|-){0,61}[^\W_])?$")
 _RFC6761_RESERVED_TLDS = {"test", "local", "localhost", "invalid", "example"}
 
 def is_valid_domain_name(name: str) -> bool:
