@@ -9,7 +9,7 @@ use common::{
     Server,
     auth::{Permissions, PermissionsGroup, permissions::BuildPermissions},
 };
-use directory::core::secret::hash_secret;
+use directory::core::secret::{hash_secret, is_password_hash};
 use jmap_proto::error::set::SetError;
 use registry::{schema::structs::TaskStatus, types::datetime::UTCDateTime};
 use registry::{
@@ -118,14 +118,6 @@ pub(crate) async fn validate_account(
                                 }
 
                                 if credential.secret != old_credential.secret {
-                                    if let Err(err) =
-                                        set.server.is_secure_password(&credential.secret, &[])
-                                    {
-                                        return Ok(Err(SetError::invalid_properties()
-                                            .with_property(Property::Secret)
-                                            .with_description(err)));
-                                    }
-
                                     if credential.expires_at == old_credential.expires_at
                                         && credential
                                             .expires_at
@@ -142,12 +134,30 @@ pub(crate) async fn validate_account(
                                         ));
                                     }
 
-                                    credential.secret = hash_secret(
-                                        set.server.core.network.security.password_hash_algorithm,
-                                        std::mem::take(&mut credential.secret).into_bytes(),
-                                    )
-                                    .await
-                                    .caused_by(trc::location!())?;
+                                    if !(matches!(
+                                        credential.secret.as_bytes().first(),
+                                        Some(&b'$' | &b'{')
+                                    ) && is_password_hash(&credential.secret))
+                                    {
+                                        if let Err(err) =
+                                            set.server.is_secure_password(&credential.secret, &[])
+                                        {
+                                            return Ok(Err(SetError::invalid_properties()
+                                                .with_property(Property::Secret)
+                                                .with_description(err)));
+                                        }
+
+                                        credential.secret = hash_secret(
+                                            set.server
+                                                .core
+                                                .network
+                                                .security
+                                                .password_hash_algorithm,
+                                            std::mem::take(&mut credential.secret).into_bytes(),
+                                        )
+                                        .await
+                                        .caused_by(trc::location!())?;
+                                    }
                                 }
                             }
                             (
@@ -181,7 +191,6 @@ pub(crate) async fn validate_account(
                     credential,
                     is_external_directory,
                     has_password,
-                    false,
                 )
                 .await?
                 {
@@ -218,7 +227,6 @@ pub(crate) async fn validate_account(
                     credential,
                     is_external_directory,
                     index > 0,
-                    recover_account_id.is_some(),
                 )
                 .await?
                 {
@@ -266,7 +274,6 @@ async fn validate_credential_creation(
     credential: &mut Credential,
     is_external_directory: bool,
     has_password: bool,
-    is_recovery_mode: bool,
 ) -> trc::Result<Result<(), SetError<Property>>> {
     match credential {
         Credential::Password(credential) => {
@@ -280,23 +287,22 @@ async fn validate_credential_creation(
                     .with_description("Only one password credential is allowed.")));
             }
 
-            if is_recovery_mode && credential.secret.starts_with('$') {
-                return Ok(Ok(()));
+            if credential.expires_at.is_none()
+                && let Some(expires_at) = server.core.network.security.password_default_expiration
+            {
+                credential.expires_at =
+                    Some(UTCDateTime::from_timestamp((now() + expires_at) as i64));
             }
 
-            if let Err(err) = server.is_secure_password(&credential.secret, &[]) {
+            if matches!(credential.secret.as_bytes().first(), Some(&b'$' | &b'{'))
+                && is_password_hash(&credential.secret)
+            {
+                Ok(Ok(()))
+            } else if let Err(err) = server.is_secure_password(&credential.secret, &[]) {
                 Ok(Err(SetError::invalid_properties()
                     .with_property(Property::Secret)
                     .with_description(err)))
             } else {
-                if credential.expires_at.is_none()
-                    && let Some(expires_at) =
-                        server.core.network.security.password_default_expiration
-                {
-                    credential.expires_at =
-                        Some(UTCDateTime::from_timestamp((now() + expires_at) as i64));
-                }
-
                 credential.secret = hash_secret(
                     server.core.network.security.password_hash_algorithm,
                     std::mem::take(&mut credential.secret).into_bytes(),

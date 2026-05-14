@@ -10,6 +10,7 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
 - Dns updater: Log DNS record types and values.
 
 ## Changed
+- Accept password hashes with `$` or `{` prefixes as secure secrets.
 
 ## Fixed
 - DAV: `acl-principal-prop-set` REPORT enforced the wrong privilege.
