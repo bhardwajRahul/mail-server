@@ -137,8 +137,23 @@ impl JmapConfig {
             Capabilities::FileNode(FileNodeCapabilities {
                 max_file_node_depth: None,
                 max_size_file_node_name: 255,
+                forbidden_name_chars: Some("/<>:\"\\|?*".to_string()),
+                forbidden_node_names: Some(
+                    [
+                        ".", "..", "CON", "PRN", "AUX", "NUL", "COM0", "COM1", "COM2", "COM3",
+                        "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT0", "LPT1", "LPT2",
+                        "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+                    ]
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+                ),
                 file_node_query_sort_options: vec![],
                 may_create_top_level_file_node: true,
+                case_insensitive_names: false,
+                web_trash_url: None,
+                web_url_template: None,
+                web_write_url_template: None,
             }),
         );
 

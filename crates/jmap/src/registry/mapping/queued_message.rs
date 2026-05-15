@@ -169,7 +169,9 @@ pub(crate) async fn queued_message_set(
                 }
             }
 
-            if let Some(next_retry) = set_next_retry {
+            if let Some(next_retry) = set_next_retry
+                && !matches!(queued_rcpt.status, Status::PermanentFailure(_))
+            {
                 let new_due = next_retry.timestamp() as u64;
                 if queued_rcpt.retry.due != new_due {
                     queued_rcpt.retry.due = new_due;

@@ -9,7 +9,7 @@ use common::{Server, auth::AccessToken, sharing::EffectiveAcl};
 use groupware::{cache::GroupwareCache, file::FileNode};
 use jmap_proto::{
     method::get::{GetRequest, GetResponse},
-    object::file_node::{self, FileNodeProperty, FileNodeValue},
+    object::file_node::{self, FileNodeNodeType, FileNodeProperty, FileNodeValue},
     types::date::UTCDate,
 };
 use jmap_tools::{Map, Value};
@@ -43,9 +43,22 @@ impl FileNodeGet for Server {
         let ids = request.unwrap_ids(self.core.jmap.get_max_objects)?;
         let properties = request.unwrap_properties(&[
             FileNodeProperty::Id,
-            FileNodeProperty::Name,
             FileNodeProperty::ParentId,
+            FileNodeProperty::NodeType,
+            FileNodeProperty::BlobId,
+            FileNodeProperty::Target,
             FileNodeProperty::Size,
+            FileNodeProperty::Name,
+            FileNodeProperty::Type,
+            FileNodeProperty::Created,
+            FileNodeProperty::Modified,
+            FileNodeProperty::Accessed,
+            FileNodeProperty::Changed,
+            FileNodeProperty::Executable,
+            FileNodeProperty::IsSubscribed,
+            FileNodeProperty::MyRights,
+            FileNodeProperty::ShareWith,
+            FileNodeProperty::Role,
         ]);
         let account_id = request.account_id.document_id();
         let cache = self
@@ -65,7 +78,7 @@ impl FileNodeGet for Server {
             cache.shared_containers(access_token, [Acl::Read, Acl::ReadItems], true)
         };
 
-        let ids = if let Some(ids) = ids {
+        let mut ids = if let Some(ids) = ids {
             ids
         } else {
             file_node_ids
@@ -74,6 +87,28 @@ impl FileNodeGet for Server {
                 .map(Into::into)
                 .collect::<Vec<_>>()
         };
+
+        if request.arguments.fetch_parents.unwrap_or(false) {
+            let mut seen: RoaringBitmap = ids.iter().map(|i| i.document_id()).collect();
+            let mut extra: Vec<types::id::Id> = Vec::new();
+            for id in &ids {
+                let mut current = cache
+                    .any_resource_path_by_id(id.document_id())
+                    .and_then(|r| r.parent_id());
+                while let Some(parent_id) = current {
+                    if !seen.insert(parent_id) {
+                        break;
+                    }
+                    if file_node_ids.contains(parent_id) {
+                        extra.push(parent_id.into());
+                    }
+                    current = cache
+                        .container_resource_by_id(parent_id)
+                        .and_then(|r| r.parent_id());
+                }
+            }
+            ids.extend(extra);
+        }
         let mut response = GetResponse {
             account_id: request.account_id.into(),
             state: cache.get_state(true).into(),
@@ -224,6 +259,31 @@ impl FileNodeGet for Server {
                                 now() as i64
                             ))),
                         );
+                    }
+                    FileNodeProperty::Changed => {
+                        result.insert_unchecked(
+                            FileNodeProperty::Changed,
+                            Value::Element(FileNodeValue::Date(UTCDate::from_timestamp(
+                                file_node.modified.to_native(),
+                            ))),
+                        );
+                    }
+                    FileNodeProperty::NodeType => {
+                        let node_type = if file_node.file.is_some() {
+                            FileNodeNodeType::File
+                        } else {
+                            FileNodeNodeType::Directory
+                        };
+                        result.insert_unchecked(
+                            FileNodeProperty::NodeType,
+                            Value::Str(node_type.as_str().into()),
+                        );
+                    }
+                    FileNodeProperty::Target => {
+                        result.insert_unchecked(FileNodeProperty::Target, Value::Null);
+                    }
+                    FileNodeProperty::Role => {
+                        result.insert_unchecked(FileNodeProperty::Role, Value::Null);
                     }
                     FileNodeProperty::IsSubscribed => {
                         result.insert_unchecked(FileNodeProperty::IsSubscribed, Value::Bool(true));

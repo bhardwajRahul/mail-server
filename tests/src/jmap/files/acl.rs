@@ -48,7 +48,10 @@ pub async fn test(test: &TestServer) {
         "name": "Test #1",
         "myRights": {
           "mayRead": true,
-          "mayWrite": true,
+          "mayAddChildren": true,
+          "mayRename": true,
+          "mayDelete": true,
+          "mayModifyContent": true,
           "mayShare": true
         },
         "shareWith": {}
@@ -113,7 +116,10 @@ pub async fn test(test: &TestServer) {
         "shareWith": {
             &jane_id : {
                 "mayRead": true,
-                "mayWrite": false,
+                "mayAddChildren": false,
+                "mayRename": false,
+                "mayDelete": false,
+                "mayModifyContent": false,
                 "mayShare": false
             }
         }
@@ -137,7 +143,10 @@ pub async fn test(test: &TestServer) {
         "name": "Test #1",
         "myRights": {
             "mayRead": true,
-            "mayWrite": false,
+            "mayAddChildren": false,
+            "mayRename": false,
+            "mayDelete": false,
+            "mayModifyContent": false,
             "mayShare": false
         }
         }));
@@ -178,12 +187,18 @@ pub async fn test(test: &TestServer) {
           "objectId": &john_folder_id,
           "oldRights": {
             "mayRead": false,
-            "mayWrite": false,
+            "mayAddChildren": false,
+            "mayRename": false,
+            "mayDelete": false,
+            "mayModifyContent": false,
             "mayShare": false
           },
           "newRights": {
             "mayRead": true,
-            "mayWrite": false,
+            "mayAddChildren": false,
+            "mayRename": false,
+            "mayDelete": false,
+            "mayModifyContent": false,
             "mayShare": false
           },
           "name": null
@@ -221,7 +236,10 @@ pub async fn test(test: &TestServer) {
         [(
             &john_folder_id,
             json!({
-                format!("shareWith/{jane_id}/mayWrite"): true,
+                format!("shareWith/{jane_id}/mayAddChildren"): true,
+                format!("shareWith/{jane_id}/mayRename"): true,
+                format!("shareWith/{jane_id}/mayDelete"): true,
+                format!("shareWith/{jane_id}/mayModifyContent"): true,
             }),
         )],
         Vec::<(&str, &str)>::new(),
@@ -245,7 +263,10 @@ pub async fn test(test: &TestServer) {
         "name": "Test #1",
         "myRights": {
             "mayRead": true,
-            "mayWrite": true,
+            "mayAddChildren": true,
+            "mayRename": true,
+            "mayDelete": true,
+            "mayModifyContent": true,
             "mayShare": false
         }
         }));
@@ -286,12 +307,18 @@ pub async fn test(test: &TestServer) {
           "objectId": &john_folder_id,
           "oldRights": {
             "mayRead": true,
-            "mayWrite": false,
+            "mayAddChildren": false,
+            "mayRename": false,
+            "mayDelete": false,
+            "mayModifyContent": false,
             "mayShare": false
           },
           "newRights": {
             "mayRead": true,
-            "mayWrite": true,
+            "mayAddChildren": true,
+            "mayRename": true,
+            "mayDelete": true,
+            "mayModifyContent": true,
             "mayShare": false
           },
           "name": null
@@ -419,12 +446,18 @@ pub async fn test(test: &TestServer) {
           "objectId": &john_folder_id,
           "oldRights": {
             "mayRead": true,
-            "mayWrite": true,
+            "mayAddChildren": true,
+            "mayRename": true,
+            "mayDelete": true,
+            "mayModifyContent": true,
             "mayShare": false
           },
           "newRights": {
             "mayRead": false,
-            "mayWrite": false,
+            "mayAddChildren": false,
+            "mayRename": false,
+            "mayDelete": false,
+            "mayModifyContent": false,
             "mayShare": false
           },
           "name": null
@@ -437,7 +470,10 @@ pub async fn test(test: &TestServer) {
             &john_folder_id,
             json!({
                 format!("shareWith/{jane_id}/mayRead"): true,
-                format!("shareWith/{jane_id}/mayWrite"): true,
+                format!("shareWith/{jane_id}/mayAddChildren"): true,
+                format!("shareWith/{jane_id}/mayRename"): true,
+                format!("shareWith/{jane_id}/mayDelete"): true,
+                format!("shareWith/{jane_id}/mayModifyContent"): true,
             }),
         )],
         Vec::<(&str, &str)>::new(),

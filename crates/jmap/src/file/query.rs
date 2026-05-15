@@ -57,21 +57,57 @@ impl FileNodeQuery for Server {
                             filters.push(SearchFilter::is_in_set(RoaringBitmap::new()));
                         }
                     }
+                    FileNodeFilter::DescendantId(MaybeInvalid::Value(id)) => {
+                        let mut ancestors = RoaringBitmap::new();
+                        let mut current = cache
+                            .any_resource_path_by_id(id.document_id())
+                            .and_then(|r| r.parent_id());
+                        while let Some(parent_id) = current {
+                            if !ancestors.insert(parent_id) {
+                                break;
+                            }
+                            current = cache
+                                .container_resource_by_id(parent_id)
+                                .and_then(|r| r.parent_id());
+                        }
+                        filters.push(SearchFilter::is_in_set(ancestors));
+                    }
                     FileNodeFilter::ParentId(MaybeInvalid::Value(id)) => {
                         filters.push(SearchFilter::is_in_set(RoaringBitmap::from_iter(
                             cache.children_ids(id.document_id()),
                         )));
                     }
-                    FileNodeFilter::HasParentId(has_parent_id) => {
+                    FileNodeFilter::IsTopLevel(is_top_level) => {
                         filters.push(SearchFilter::is_in_set(RoaringBitmap::from_iter(
                             cache.resources.iter().filter_map(|r| {
-                                if has_parent_id == r.parent_id().is_some() {
+                                if is_top_level == r.parent_id().is_none() {
                                     Some(r.document_id)
                                 } else {
                                     None
                                 }
                             }),
                         )));
+                    }
+                    FileNodeFilter::NodeType(node_type) => {
+                        let want_container = match node_type.as_str() {
+                            "directory" => Some(true),
+                            "file" => Some(false),
+                            _ => None,
+                        };
+                        let set = match want_container {
+                            Some(is_container) => RoaringBitmap::from_iter(
+                                cache.resources.iter().filter_map(|r| {
+                                    if r.is_container() == is_container {
+                                        Some(r.document_id)
+                                    } else {
+                                        None
+                                    }
+                                }),
+                            ),
+                            // TODO: support symlink nodeType once target storage exists
+                            None => RoaringBitmap::new(),
+                        };
+                        filters.push(SearchFilter::is_in_set(set));
                     }
                     FileNodeFilter::Name(name) => {
                         filters.push(SearchFilter::is_in_set(RoaringBitmap::from_iter(
@@ -119,11 +155,25 @@ impl FileNodeQuery for Server {
                             }),
                         )));
                     }
-                    unsupported => {
-                        return Err(trc::JmapEvent::UnsupportedFilter
-                            .into_err()
-                            .details(unsupported.into_string()));
-                    }
+                    // TODO: filters below require fetching archives or new indexes; ignore for now
+                    FileNodeFilter::Role(_)
+                    | FileNodeFilter::HasAnyRole(_)
+                    | FileNodeFilter::BlobId(_)
+                    | FileNodeFilter::IsExecutable(_)
+                    | FileNodeFilter::CreatedBefore(_)
+                    | FileNodeFilter::CreatedAfter(_)
+                    | FileNodeFilter::ModifiedBefore(_)
+                    | FileNodeFilter::ModifiedAfter(_)
+                    | FileNodeFilter::AccessedBefore(_)
+                    | FileNodeFilter::AccessedAfter(_)
+                    | FileNodeFilter::Type(_)
+                    | FileNodeFilter::TypeMatch(_)
+                    | FileNodeFilter::Text(_)
+                    | FileNodeFilter::Body(_)
+                    | FileNodeFilter::AncestorId(_)
+                    | FileNodeFilter::DescendantId(_)
+                    | FileNodeFilter::ParentId(_)
+                    | FileNodeFilter::_T(_) => {}
                 },
                 Filter::And => {
                     filters.push(SearchFilter::And);
@@ -140,11 +190,7 @@ impl FileNodeQuery for Server {
             }
         }
 
-        if request.sort.as_ref().is_some_and(|s| !s.is_empty()) {
-            return Err(trc::JmapEvent::UnsupportedSort
-                .into_err()
-                .details("Sorting is not supported on FileNode"));
-        }
+        // TODO: implement FileNode/query sort (name, size, type, created, modified, nodeType, tree)
 
         let results = SearchQuery::new(SearchIndex::InMemory)
             .with_filters(filters)

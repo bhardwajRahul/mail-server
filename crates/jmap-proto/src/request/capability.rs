@@ -267,10 +267,22 @@ pub struct FileNodeCapabilities {
     pub max_file_node_depth: Option<u64>,
     #[serde(rename(serialize = "maxSizeFileNodeName"))]
     pub max_size_file_node_name: u64,
+    #[serde(rename(serialize = "forbiddenNameChars"))]
+    pub forbidden_name_chars: Option<String>,
+    #[serde(rename(serialize = "forbiddenNodeNames"))]
+    pub forbidden_node_names: Option<Vec<String>>,
     #[serde(rename(serialize = "fileNodeQuerySortOptions"))]
     pub file_node_query_sort_options: Vec<FileNodeComparator>,
     #[serde(rename(serialize = "mayCreateTopLevelFileNode"))]
     pub may_create_top_level_file_node: bool,
+    #[serde(rename(serialize = "caseInsensitiveNames"))]
+    pub case_insensitive_names: bool,
+    #[serde(rename(serialize = "webTrashUrl"))]
+    pub web_trash_url: Option<String>,
+    #[serde(rename(serialize = "webUrlTemplate"))]
+    pub web_url_template: Option<String>,
+    #[serde(rename(serialize = "webWriteUrlTemplate"))]
+    pub web_write_url_template: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize)]

@@ -197,10 +197,9 @@ pub async fn test(test: &TestServer) {
             Vec::<(&str, &str)>::new(),
         )
         .await;
-    assert_eq!(
-        response.not_created(0).description(),
-        "A node with the same name already exists in this folder."
-    );
+    let err = response.not_created(0);
+    assert_eq!(err.typ(), "alreadyExists");
+    assert_eq!(err.text_field("existingId"), sub_folder_id.as_str());
     assert_eq!(
         response.not_created(1).description(),
         "Parent ID does not exist or is not a folder."
@@ -330,6 +329,144 @@ pub async fn test(test: &TestServer) {
         .into_iter()
         .collect::<AHashSet<_>>()
     );
+
+    // fetchParents: requesting a leaf should return its ancestors too
+    let response = account
+        .jmap_create(
+            MethodObject::FileNode,
+            [
+                json!({"name": "fp-root"}),
+                json!({"name": "fp-sub", "parentId": "#i0"}),
+                json!({"name": "fp-leaf", "parentId": "#i1"}),
+            ],
+            Vec::<(&str, &str)>::new(),
+        )
+        .await;
+    let fp_root = response.created(0).id().to_string();
+    let fp_sub = response.created(1).id().to_string();
+    let fp_leaf = response.created(2).id().to_string();
+    let response = account
+        .jmap_method_calls(json!([[
+            "FileNode/get",
+            {
+                "accountId": account.id_string(),
+                "ids": [&fp_leaf],
+                "fetchParents": true,
+                "properties": ["id"]
+            },
+            "0"
+        ]]))
+        .await;
+    let ids = response
+        .pointer("/methodResponses/0/1/list")
+        .and_then(|v| v.as_array())
+        .map(|list| {
+            list.iter()
+                .map(|n| n.text_field("id").to_string())
+                .collect::<AHashSet<_>>()
+        })
+        .expect("fetchParents response");
+    assert_eq!(
+        ids,
+        [fp_leaf.as_str(), fp_sub.as_str(), fp_root.as_str()]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<AHashSet<_>>()
+    );
+    account
+        .jmap_destroy(
+            MethodObject::FileNode,
+            [&fp_root],
+            [("onDestroyRemoveChildren", true)],
+        )
+        .await
+        .destroyed()
+        .for_each(drop);
+
+    // onExists=rename should produce a unique sibling name
+    let response = account
+        .jmap_create(
+            MethodObject::FileNode,
+            [json!({"name": "dupe.txt", "parentId": null, "blobId": null})],
+            Vec::<(&str, &str)>::new(),
+        )
+        .await;
+    let dupe_orig = response.created(0).id().to_string();
+    let response = account
+        .jmap_create(
+            MethodObject::FileNode,
+            [json!({"name": "dupe.txt"})],
+            [("onExists", "rename")],
+        )
+        .await;
+    let dupe_renamed = response.created(0);
+    let dupe_renamed_id = dupe_renamed.id().to_string();
+    assert_eq!(dupe_renamed.text_field("name"), "dupe (2).txt");
+
+    // onExists=reject (default) should return alreadyExists with existingId
+    let response = account
+        .jmap_create(
+            MethodObject::FileNode,
+            [json!({"name": "dupe.txt"})],
+            Vec::<(&str, &str)>::new(),
+        )
+        .await;
+    let err = response.not_created(0);
+    assert_eq!(err.typ(), "alreadyExists");
+    assert_eq!(err.text_field("existingId"), dupe_orig.as_str());
+
+    // onExists=replace should destroy the existing sibling
+    let response = account
+        .jmap_create(
+            MethodObject::FileNode,
+            [json!({"name": "dupe.txt"})],
+            [("onExists", "replace")],
+        )
+        .await;
+    let dupe_replacement = response.created(0).id().to_string();
+    let destroyed = response.destroyed().collect::<AHashSet<_>>();
+    assert!(
+        destroyed.contains(dupe_orig.as_str()),
+        "Expected old id {dupe_orig} to be destroyed, got {destroyed:?}"
+    );
+    account
+        .jmap_destroy(
+            MethodObject::FileNode,
+            [&dupe_renamed_id, &dupe_replacement],
+            [("onDestroyRemoveChildren", true)],
+        )
+        .await
+        .destroyed()
+        .for_each(drop);
+
+    // compareCaseInsensitively should treat sibling names as case-insensitive
+    let response = account
+        .jmap_create(
+            MethodObject::FileNode,
+            [json!({"name": "CASE"})],
+            Vec::<(&str, &str)>::new(),
+        )
+        .await;
+    let case_id = response.created(0).id().to_string();
+    let response = account
+        .jmap_create(
+            MethodObject::FileNode,
+            [json!({"name": "case"})],
+            [("compareCaseInsensitively", true)],
+        )
+        .await;
+    let err = response.not_created(0);
+    assert_eq!(err.typ(), "alreadyExists");
+    assert_eq!(err.text_field("existingId"), case_id.as_str());
+    account
+        .jmap_destroy(
+            MethodObject::FileNode,
+            [&case_id],
+            Vec::<(&str, &str)>::new(),
+        )
+        .await
+        .destroyed()
+        .for_each(drop);
 
     // Make sure everything is gone
     test.assert_is_empty().await;
