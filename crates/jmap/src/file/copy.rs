@@ -387,11 +387,15 @@ impl FileNodeCopy for Server {
                 None,
             );
             let final_name = file_node.name.clone();
+            let set_created = file_node.created == 0;
+            let set_modified = file_node.modified == 0;
             file_node
                 .insert(
                     access_token.account_tenant_ids(),
                     account_id,
                     document_id,
+                    set_created,
+                    set_modified,
                     &mut batch,
                 )
                 .caused_by(trc::location!())?;

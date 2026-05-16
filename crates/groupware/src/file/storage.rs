@@ -20,13 +20,18 @@ impl FileNode {
         changed_by: AccountTenantIds,
         account_id: u32,
         document_id: u32,
+        set_created: bool,
+        set_modified: bool,
         batch: &mut BatchBuilder,
     ) -> trc::Result<&mut BatchBuilder> {
-        // Build node
         let mut node = self;
         let now = now() as i64;
-        node.modified = now;
-        node.created = now;
+        if set_created {
+            node.created = now;
+        }
+        if set_modified {
+            node.modified = now;
+        }
 
         // Prepare write batch
         batch
@@ -40,17 +45,20 @@ impl FileNode {
             )
             .map(|b| b.commit_point())
     }
+
     pub fn update<'x>(
         self,
         changed_by: AccountTenantIds,
         node: Archive<&ArchivedFileNode>,
         account_id: u32,
         document_id: u32,
+        set_modified: bool,
         batch: &'x mut BatchBuilder,
     ) -> trc::Result<&'x mut BatchBuilder> {
-        // Build node
         let mut new_node = self;
-        new_node.modified = now() as i64;
+        if set_modified {
+            new_node.modified = now() as i64;
+        }
         batch
             .with_account_id(account_id)
             .with_collection(Collection::FileNode)

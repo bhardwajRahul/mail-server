@@ -153,6 +153,7 @@ impl FilePropPatchRequestHandler for Server {
                     node,
                     account_id,
                     resource.resource,
+                    true,
                     &mut batch,
                 )
                 .caused_by(trc::location!())?

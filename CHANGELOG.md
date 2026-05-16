@@ -10,6 +10,7 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
 - Dns updater: Log DNS record types and values.
 
 ## Changed
+- Bump JMAP File Storage to [draft-ietf-jmap-filenode-14](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-filenode-14).
 - Accept password hashes with `$` or `{` prefixes as secure secrets.
 
 ## Fixed

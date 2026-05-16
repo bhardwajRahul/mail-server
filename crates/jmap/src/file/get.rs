@@ -68,6 +68,7 @@ impl FileNodeGet for Server {
                 SyncCollection::FileNode,
             )
             .await?;
+        // TODO: draft-14 section 5 case 2 - ancestors of shared nodes should be discoverable with mayRead=false
         let file_node_ids = if access_token.is_member(account_id) {
             cache
                 .resources
@@ -217,10 +218,14 @@ impl FileNodeGet for Server {
                     FileNodeProperty::Type => {
                         result.insert_unchecked(
                             FileNodeProperty::Type,
-                            if let Some(file) =
-                                file_node.file.as_ref().and_then(|f| f.media_type.as_ref())
-                            {
-                                Value::Str(file.to_string().into())
+                            if let Some(file) = file_node.file.as_ref() {
+                                Value::Str(
+                                    file.media_type
+                                        .as_ref()
+                                        .map(|t| t.to_string())
+                                        .unwrap_or_else(|| "application/octet-stream".to_string())
+                                        .into(),
+                                )
                             } else {
                                 Value::Null
                             },
@@ -253,6 +258,7 @@ impl FileNodeGet for Server {
                         );
                     }
                     FileNodeProperty::Accessed => {
+                        // TODO: needs serialization change (per-user accessed timestamp); returns now() as a placeholder
                         result.insert_unchecked(
                             FileNodeProperty::Accessed,
                             Value::Element(FileNodeValue::Date(UTCDate::from_timestamp(
@@ -261,6 +267,7 @@ impl FileNodeGet for Server {
                         );
                     }
                     FileNodeProperty::Changed => {
+                        // TODO: needs serialization change (dedicated server-set changed timestamp); returns modified as a placeholder
                         result.insert_unchecked(
                             FileNodeProperty::Changed,
                             Value::Element(FileNodeValue::Date(UTCDate::from_timestamp(
@@ -286,6 +293,7 @@ impl FileNodeGet for Server {
                         result.insert_unchecked(FileNodeProperty::Role, Value::Null);
                     }
                     FileNodeProperty::IsSubscribed => {
+                        // TODO: needs serialization change (per-user subscription state); always true for now
                         result.insert_unchecked(FileNodeProperty::IsSubscribed, Value::Bool(true));
                     }
                     property => {

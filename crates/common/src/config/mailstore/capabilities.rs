@@ -9,7 +9,7 @@ use ahash::AHashSet;
 use calcard::icalendar::ICalendarDuration;
 use chrono::{DateTime, Utc};
 use jmap_proto::{
-    object::email::EmailComparator,
+    object::{email::EmailComparator, file_node::FileNodeComparator},
     request::capability::{
         BlobCapabilities, CalendarCapabilities, Capabilities, Capability, ContactsCapabilities,
         CoreCapabilities, EmptyCapabilities, FileNodeCapabilities, MailCapabilities,
@@ -148,7 +148,11 @@ impl JmapConfig {
                     .map(str::to_string)
                     .collect(),
                 ),
-                file_node_query_sort_options: vec![],
+                file_node_query_sort_options: vec![
+                    FileNodeComparator::Name,
+                    FileNodeComparator::Size,
+                    FileNodeComparator::NodeType,
+                ],
                 may_create_top_level_file_node: true,
                 case_insensitive_names: false,
                 web_trash_url: None,

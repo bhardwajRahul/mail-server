@@ -185,6 +185,7 @@ impl DavAclHandler for Server {
                             node,
                             account_id,
                             resource.document_id(),
+                            true,
                             &mut batch,
                         )
                         .caused_by(trc::location!())?;

@@ -396,6 +396,7 @@ async fn move_container(
                 node,
                 from_account_id,
                 from_document_id,
+                true,
                 &mut batch,
             )
             .caused_by(trc::location!())?
@@ -619,6 +620,7 @@ async fn overwrite_and_delete_item(
             dest_node,
             to_account_id,
             to_document_id,
+            true,
             &mut batch,
         )
         .caused_by(trc::location!())?
@@ -694,6 +696,7 @@ async fn overwrite_item(
             dest_node,
             to_account_id,
             to_document_id,
+            true,
             &mut batch,
         )
         .caused_by(trc::location!())?
@@ -748,6 +751,7 @@ async fn move_item(
                 node,
                 from_account_id,
                 from_document_id,
+                true,
                 &mut batch,
             )
             .caused_by(trc::location!())?
@@ -764,6 +768,8 @@ async fn move_item(
                 access_token.account_tenant_ids(),
                 to_account_id,
                 to_document_id,
+                true,
+                true,
                 &mut batch,
             )
             .caused_by(trc::location!())?
@@ -826,6 +832,8 @@ async fn copy_item(
             access_token.account_tenant_ids(),
             to_account_id,
             to_document_id,
+            true,
+            true,
             &mut batch,
         )
         .caused_by(trc::location!())?
@@ -873,6 +881,7 @@ async fn rename_item(
             node,
             from_account_id,
             from_document_id,
+            true,
             &mut batch,
         )
         .caused_by(trc::location!())?

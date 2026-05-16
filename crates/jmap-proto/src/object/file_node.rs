@@ -323,12 +323,15 @@ impl<'de> serde::Deserialize<'de> for OnExists {
         D: serde::Deserializer<'de>,
     {
         let value: Option<Cow<'_, str>> = Option::deserialize(deserializer)?;
-        Ok(match value.as_deref() {
-            Some("replace") => OnExists::Replace,
-            Some("rename") => OnExists::Rename,
-            Some("newest") => OnExists::Newest,
-            _ => OnExists::Reject,
-        })
+        match value.as_deref() {
+            Some("replace") => Ok(OnExists::Replace),
+            Some("rename") => Ok(OnExists::Rename),
+            Some("newest") => Ok(OnExists::Newest),
+            None | Some("") => Ok(OnExists::Reject),
+            Some(other) => Err(serde::de::Error::custom(format!(
+                "Invalid onExists value: {other:?}"
+            ))),
+        }
     }
 }
 
@@ -626,7 +629,7 @@ impl<'de> DeserializeArguments<'de> for FileNodeComparator {
                     *self = FileNodeComparator::Tree;
                 },
                 _ => {
-                    *self = FileNodeComparator::_T(key.to_string());
+                    *self = FileNodeComparator::_T(value.into_owned());
                 }
             );
         } else {

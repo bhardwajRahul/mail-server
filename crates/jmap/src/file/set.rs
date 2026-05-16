@@ -166,19 +166,14 @@ impl FileNodeSet for Server {
                 Collision::Existing(existing) => {
                     let effective = match on_exists {
                         OnExists::Newest => {
-                            let existing_modified = fetch_existing_modified(
-                                self.store(),
-                                account_id,
-                                existing,
-                            )
-                            .await?;
+                            let existing_modified =
+                                fetch_existing_modified(self.store(), account_id, existing).await?;
                             if file_node.modified > existing_modified {
                                 OnExists::Replace
                             } else {
                                 response.not_created.append(
                                     id,
-                                    SetError::already_exists()
-                                        .with_existing_id(Id::from(existing)),
+                                    SetError::already_exists().with_existing_id(Id::from(existing)),
                                 );
                                 continue 'create;
                             }
@@ -293,11 +288,15 @@ impl FileNodeSet for Server {
             }
             let final_name = file_node.name.clone();
             pending_names.insert(pending_key(&file_node, case_insensitive), None);
+            let set_created = file_node.created == 0;
+            let set_modified = file_node.modified == 0;
             file_node
                 .insert(
                     access_token.account_tenant_ids(),
                     account_id,
                     document_id,
+                    set_created,
+                    set_modified,
                     &mut batch,
                 )
                 .caused_by(trc::location!())?;
@@ -343,45 +342,46 @@ impl FileNodeSet for Server {
                 .caused_by(trc::location!())?;
 
             // Apply changes
-            let has_acl_changes = match update_file_node(object, &mut new_file_node, false, &response)
-            {
-                Ok(result) => {
-                    if let Some(blob_id) = result.blob_id {
-                        let file_details = new_file_node.file.get_or_insert_default();
-                        if !self.has_access_blob(&blob_id, access_token).await? {
-                            response.not_updated.append(
-                                id,
-                                SetError::forbidden().with_description(format!(
-                                    "You do not have access to blobId {blob_id}."
-                                )),
-                            );
-                            continue;
-                        } else if let Some(blob_contents) = self
-                            .blob_store()
-                            .get_blob(blob_id.hash.as_slice(), 0..usize::MAX)
-                            .await?
-                        {
-                            file_details.size = blob_contents.len() as u32;
-                        } else {
-                            response.not_updated.append(
-                                id,
-                                SetError::invalid_properties()
-                                    .with_property(FileNodeProperty::BlobId)
-                                    .with_description("Blob could not be found."),
-                            );
-                            continue 'update;
+            let (has_acl_changes, modified_set) =
+                match update_file_node(object, &mut new_file_node, false, &response) {
+                    Ok(result) => {
+                        let modified_set = result.modified_set;
+                        if let Some(blob_id) = result.blob_id {
+                            let file_details = new_file_node.file.get_or_insert_default();
+                            if !self.has_access_blob(&blob_id, access_token).await? {
+                                response.not_updated.append(
+                                    id,
+                                    SetError::forbidden().with_description(format!(
+                                        "You do not have access to blobId {blob_id}."
+                                    )),
+                                );
+                                continue;
+                            } else if let Some(blob_contents) = self
+                                .blob_store()
+                                .get_blob(blob_id.hash.as_slice(), 0..usize::MAX)
+                                .await?
+                            {
+                                file_details.size = blob_contents.len() as u32;
+                            } else {
+                                response.not_updated.append(
+                                    id,
+                                    SetError::invalid_properties()
+                                        .with_property(FileNodeProperty::BlobId)
+                                        .with_description("Blob could not be found."),
+                                );
+                                continue 'update;
+                            }
+
+                            file_details.blob_hash = blob_id.hash;
                         }
 
-                        file_details.blob_hash = blob_id.hash;
+                        (result.has_acl_changes, modified_set)
                     }
-
-                    result.has_acl_changes
-                }
-                Err(err) => {
-                    response.not_updated.append(id, err);
-                    continue 'update;
-                }
-            };
+                    Err(err) => {
+                        response.not_updated.append(id, err);
+                        continue 'update;
+                    }
+                };
 
             // Validate hierarchy
             if let Err(err) = validate_file_node_hierarchy(
@@ -406,19 +406,14 @@ impl FileNodeSet for Server {
                 Collision::Existing(existing) => {
                     let effective = match on_exists {
                         OnExists::Newest => {
-                            let existing_modified = fetch_existing_modified(
-                                self.store(),
-                                account_id,
-                                existing,
-                            )
-                            .await?;
+                            let existing_modified =
+                                fetch_existing_modified(self.store(), account_id, existing).await?;
                             if new_file_node.modified > existing_modified {
                                 OnExists::Replace
                             } else {
                                 response.not_updated.append(
                                     id,
-                                    SetError::already_exists()
-                                        .with_existing_id(Id::from(existing)),
+                                    SetError::already_exists().with_existing_id(Id::from(existing)),
                                 );
                                 continue 'update;
                             }
@@ -522,13 +517,14 @@ impl FileNodeSet for Server {
                 pending_key(&new_file_node, case_insensitive),
                 Some(document_id),
             );
-            // Update record
+            // Update record. Bump modified to now() unless the client supplied a value.
             new_file_node
                 .update(
                     access_token.account_tenant_ids(),
                     file_node,
                     account_id,
                     document_id,
+                    !modified_set,
                     &mut batch,
                 )
                 .caused_by(trc::location!())?;
@@ -643,6 +639,7 @@ impl FileNodeSet for Server {
 pub(super) struct UpdateResult {
     pub(super) has_acl_changes: bool,
     pub(super) blob_id: Option<BlobId>,
+    pub(super) modified_set: bool,
 }
 
 pub(super) struct NoResolver;
@@ -661,6 +658,10 @@ pub(super) fn update_file_node<R: ResolveCreatedReference<FileNodeProperty, File
 ) -> Result<UpdateResult, SetError<FileNodeProperty>> {
     let mut has_acl_changes = false;
     let mut blob_id = None;
+    let mut pending_size: Option<u32> = None;
+    let mut pending_type: Option<Option<String>> = None;
+    let mut pending_executable: Option<bool> = None;
+    let mut modified_set = false;
 
     for (property, mut value) in updates.into_expanded_object() {
         let Key::Property(property) = property else {
@@ -672,13 +673,23 @@ pub(super) fn update_file_node<R: ResolveCreatedReference<FileNodeProperty, File
         resolver.resolve_self_references(&mut value, 0, false)?;
 
         match (property, value) {
-            (FileNodeProperty::Name, Value::Str(value))
-                if (1..=255).contains(&value.len())
-                    && !value.contains(|c: char| FORBIDDEN_NAME_CHARS.contains(c))
-                    && !FORBIDDEN_NODE_NAMES
-                        .iter()
-                        .any(|n| n.eq_ignore_ascii_case(value.as_ref())) =>
-            {
+            (FileNodeProperty::Name, Value::Str(value)) => {
+                if !(1..=255).contains(&value.len()) {
+                    return Err(SetError::invalid_properties()
+                        .with_property(FileNodeProperty::Name)
+                        .with_description("Name must be between 1 and 255 octets."));
+                } else if value.contains(|c: char| FORBIDDEN_NAME_CHARS.contains(c)) {
+                    return Err(SetError::invalid_properties()
+                        .with_property(FileNodeProperty::Name)
+                        .with_description("Name contains a forbidden character."));
+                } else if FORBIDDEN_NODE_NAMES
+                    .iter()
+                    .any(|n| n.eq_ignore_ascii_case(value.as_ref()))
+                {
+                    return Err(SetError::invalid_properties()
+                        .with_property(FileNodeProperty::Name)
+                        .with_description("Name is reserved and cannot be used."));
+                }
                 file_node.name = value.into_owned();
             }
             (FileNodeProperty::ParentId, Value::Element(FileNodeValue::Id(value))) => {
@@ -698,32 +709,49 @@ pub(super) fn update_file_node<R: ResolveCreatedReference<FileNodeProperty, File
             }
             (FileNodeProperty::BlobId, Value::Null) => {}
             (FileNodeProperty::Size, Value::Number(value)) => {
-                file_node.file.get_or_insert_default().size = value.cast_to_u64() as u32;
+                let value = value.cast_to_u64();
+                if value > u32::MAX as u64 {
+                    return Err(SetError::invalid_properties()
+                        .with_property(FileNodeProperty::Size)
+                        .with_description("size is too large."));
+                }
+                pending_size = Some(value as u32);
+            }
+            (FileNodeProperty::Size, Value::Null) => {
+                pending_size = Some(0);
             }
             (FileNodeProperty::Type, Value::Str(value))
                 if (1..=256).contains(&value.len()) && value.contains('/') =>
             {
                 // TODO: validate full RFC 6838 Section 4.2 ABNF for media types
-                file_node.file.get_or_insert_default().media_type = value.into_owned().into();
+                pending_type = Some(Some(value.into_owned()));
             }
             (FileNodeProperty::Type, Value::Null) => {
-                file_node.file.get_or_insert_default().media_type = None;
+                pending_type = Some(None);
             }
             (FileNodeProperty::Executable, Value::Bool(value)) => {
-                file_node.file.get_or_insert_default().executable = value;
+                pending_executable = Some(value);
             }
             (FileNodeProperty::Executable, Value::Null) => {
-                file_node.file.get_or_insert_default().executable = false;
+                pending_executable = Some(false);
             }
-            (FileNodeProperty::Created, Value::Element(FileNodeValue::Date(value))) => {
+            (FileNodeProperty::Created, Value::Element(FileNodeValue::Date(value)))
+                if is_create =>
+            {
                 file_node.created = value.timestamp();
             }
-            // TODO: groupware::file::insert/update clobber modified with now(); preserve client-supplied value
+            (FileNodeProperty::Created, _) => {
+                return Err(SetError::invalid_properties()
+                    .with_property(FileNodeProperty::Created)
+                    .with_description("created is immutable after creation."));
+            }
             (FileNodeProperty::Modified, Value::Element(FileNodeValue::Date(value))) => {
                 file_node.modified = value.timestamp();
+                modified_set = true;
             }
             (FileNodeProperty::Modified, Value::Null) => {
                 file_node.modified = now() as i64;
+                modified_set = true;
             }
             // TODO: persist accessed per-user (draft-13 section 3.1)
             (FileNodeProperty::Accessed, _) => {}
@@ -772,6 +800,29 @@ pub(super) fn update_file_node<R: ResolveCreatedReference<FileNodeProperty, File
         }
     }
 
+    let will_be_file = file_node.file.is_some() || blob_id.is_some();
+    if will_be_file {
+        let file = file_node.file.get_or_insert_default();
+        if let Some(size) = pending_size {
+            file.size = size;
+        }
+        if let Some(media_type) = pending_type {
+            file.media_type = media_type;
+        }
+        if let Some(executable) = pending_executable {
+            file.executable = executable;
+        }
+    } else {
+        let sets_non_null = matches!(pending_type, Some(Some(_)))
+            || matches!(pending_size, Some(s) if s != 0)
+            || matches!(pending_executable, Some(true));
+        if sets_non_null {
+            return Err(SetError::invalid_properties()
+                .with_property(FileNodeProperty::Type)
+                .with_description("size, type and executable may only be set on file nodes."));
+        }
+    }
+
     // Validate name
     if file_node.name.is_empty() {
         return Err(SetError::invalid_properties()
@@ -782,6 +833,7 @@ pub(super) fn update_file_node<R: ResolveCreatedReference<FileNodeProperty, File
     Ok(UpdateResult {
         has_acl_changes,
         blob_id,
+        modified_set,
     })
 }
 
@@ -920,18 +972,41 @@ pub(super) fn pick_unique_rename(
         Some(i) if i > 0 && i < base.len() - 1 => (&base[..i], &base[i..]),
         _ => (base, ""),
     };
-    let mut probe = FileNode {
-        parent_id,
-        name: String::new(),
-        ..FileNode::default()
+    let fold = |s: &str| {
+        if case_insensitive {
+            s.to_lowercase()
+        } else {
+            s.to_string()
+        }
     };
+    let node_parent_id = if parent_id == 0 {
+        None
+    } else {
+        Some(parent_id - 1)
+    };
+
+    // Collect all sibling names once, instead of rescanning per probe.
+    let mut taken: AHashSet<String> = AHashSet::new();
+    for resource in &cache.resources {
+        if let DavResourceMetadata::File {
+            name, parent_id, ..
+        } = &resource.data
+            && document_id.is_none_or(|id| id != resource.document_id)
+            && node_parent_id == *parent_id
+        {
+            taken.insert(fold(name));
+        }
+    }
+    for ((pending_parent, pending_name), _) in pending {
+        if *pending_parent == parent_id {
+            taken.insert(fold(pending_name));
+        }
+    }
+
     for n in 2u32.. {
-        probe.name = format!("{stem} ({n}){ext}");
-        if matches!(
-            find_sibling_collision(document_id, &probe, cache, pending, case_insensitive),
-            Collision::None
-        ) {
-            return probe.name;
+        let candidate = format!("{stem} ({n}){ext}");
+        if !taken.contains(&fold(&candidate)) {
+            return candidate;
         }
     }
     unreachable!()

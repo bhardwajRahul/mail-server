@@ -206,15 +206,15 @@ pub async fn test(test: &TestServer) {
     );
     assert_eq!(
         response.not_created(2).description(),
-        "Field could not be set."
+        "Name contains a forbidden character."
     );
     assert_eq!(
         response.not_created(3).description(),
-        "Field could not be set."
+        "Name is reserved and cannot be used."
     );
     assert_eq!(
         response.not_created(4).description(),
-        "Field could not be set."
+        "Name is reserved and cannot be used."
     );
 
     // Circular folder references should fail

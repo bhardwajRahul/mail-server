@@ -9,10 +9,11 @@ use common::{Server, auth::AccessToken};
 use groupware::cache::GroupwareCache;
 use jmap_proto::{
     method::query::{Filter, QueryRequest, QueryResponse},
-    object::file_node::{FileNode, FileNodeFilter},
+    object::file_node::{FileNode, FileNodeComparator, FileNodeFilter},
     request::MaybeInvalid,
 };
 use store::{
+    ahash::AHashMap,
     roaring::RoaringBitmap,
     search::{SearchFilter, SearchQuery},
     write::SearchIndex,
@@ -190,8 +191,6 @@ impl FileNodeQuery for Server {
             }
         }
 
-        // TODO: implement FileNode/query sort (name, size, type, created, modified, nodeType, tree)
-
         let results = SearchQuery::new(SearchIndex::InMemory)
             .with_filters(filters)
             .with_mask(if access_token.is_shared(account_id) {
@@ -209,9 +208,70 @@ impl FileNodeQuery for Server {
             &request,
         );
 
-        for document_id in results {
-            if !response.add(0, document_id) {
-                break;
+        // Only name, size and nodeType can be sorted from the cache.
+        // TODO: created/modified/type/tree sorts require archive or hierarchy traversal
+        let sortable = request
+            .sort
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c.property,
+                    FileNodeComparator::Name
+                        | FileNodeComparator::Size
+                        | FileNodeComparator::NodeType
+                )
+            })
+            .collect::<Vec<_>>();
+
+        if sortable.is_empty() {
+            for document_id in results {
+                if !response.add(0, document_id) {
+                    break;
+                }
+            }
+        } else {
+            let by_id = cache
+                .resources
+                .iter()
+                .map(|r| (r.document_id, r))
+                .collect::<AHashMap<_, _>>();
+            let mut ids = results.iter().collect::<Vec<_>>();
+            ids.sort_unstable_by(|a, b| {
+                for cmp in &sortable {
+                    let ra = by_id.get(a);
+                    let rb = by_id.get(b);
+                    let ordering = match cmp.property {
+                        FileNodeComparator::Name => ra
+                            .and_then(|r| r.container_name())
+                            .cmp(&rb.and_then(|r| r.container_name())),
+                        FileNodeComparator::Size => ra
+                            .and_then(|r| r.size())
+                            .cmp(&rb.and_then(|r| r.size())),
+                        FileNodeComparator::NodeType => {
+                            // Directories sort before files
+                            let a_dir = ra.map(|r| r.is_container()).unwrap_or(false);
+                            let b_dir = rb.map(|r| r.is_container()).unwrap_or(false);
+                            b_dir.cmp(&a_dir)
+                        }
+                        _ => std::cmp::Ordering::Equal,
+                    };
+                    let ordering = if cmp.is_ascending {
+                        ordering
+                    } else {
+                        ordering.reverse()
+                    };
+                    if ordering != std::cmp::Ordering::Equal {
+                        return ordering;
+                    }
+                }
+                a.cmp(b)
+            });
+            for document_id in ids {
+                if !response.add(0, document_id) {
+                    break;
+                }
             }
         }
 
