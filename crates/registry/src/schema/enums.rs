@@ -1453,6 +1453,7 @@ pub enum Permission {
     JmapFileNodeCreate = 92,
     JmapFileNodeUpdate = 93,
     JmapFileNodeDestroy = 94,
+    JmapFileNodeCopy = 659,
     JmapShareNotificationGet = 95,
     JmapShareNotificationChanges = 96,
     JmapShareNotificationQuery = 97,

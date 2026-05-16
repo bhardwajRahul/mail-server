@@ -145,6 +145,7 @@ pub enum CopyResponseMethod {
     Email(CopyResponse<Email>),
     ContactCard(CopyResponse<ContactCard>),
     CalendarEvent(CopyResponse<CalendarEvent>),
+    FileNode(CopyResponse<FileNode>),
     Blob(CopyBlobResponse),
 }
 
@@ -589,6 +590,12 @@ impl From<ParseResponse<CalendarEvent>> for ResponseMethod<'_> {
 impl From<CopyResponse<CalendarEvent>> for ResponseMethod<'_> {
     fn from(value: CopyResponse<CalendarEvent>) -> Self {
         ResponseMethod::Copy(CopyResponseMethod::CalendarEvent(value))
+    }
+}
+
+impl From<CopyResponse<FileNode>> for ResponseMethod<'_> {
+    fn from(value: CopyResponse<FileNode>) -> Self {
+        ResponseMethod::Copy(CopyResponseMethod::FileNode(value))
     }
 }
 

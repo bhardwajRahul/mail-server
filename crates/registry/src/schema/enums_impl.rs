@@ -6392,6 +6392,7 @@ impl EnumImpl for Permission {
             b"jmapFileNodeCreate" => Permission::JmapFileNodeCreate,
             b"jmapFileNodeUpdate" => Permission::JmapFileNodeUpdate,
             b"jmapFileNodeDestroy" => Permission::JmapFileNodeDestroy,
+            b"jmapFileNodeCopy" => Permission::JmapFileNodeCopy,
             b"jmapShareNotificationGet" => Permission::JmapShareNotificationGet,
             b"jmapShareNotificationChanges" => Permission::JmapShareNotificationChanges,
             b"jmapShareNotificationQuery" => Permission::JmapShareNotificationQuery,
@@ -7057,6 +7058,7 @@ impl EnumImpl for Permission {
             Permission::JmapFileNodeCreate => "jmapFileNodeCreate",
             Permission::JmapFileNodeUpdate => "jmapFileNodeUpdate",
             Permission::JmapFileNodeDestroy => "jmapFileNodeDestroy",
+            Permission::JmapFileNodeCopy => "jmapFileNodeCopy",
             Permission::JmapShareNotificationGet => "jmapShareNotificationGet",
             Permission::JmapShareNotificationChanges => "jmapShareNotificationChanges",
             Permission::JmapShareNotificationQuery => "jmapShareNotificationQuery",
@@ -7735,6 +7737,7 @@ impl EnumImpl for Permission {
             92 => Some(Permission::JmapFileNodeCreate),
             93 => Some(Permission::JmapFileNodeUpdate),
             94 => Some(Permission::JmapFileNodeDestroy),
+            659 => Some(Permission::JmapFileNodeCopy),
             95 => Some(Permission::JmapShareNotificationGet),
             96 => Some(Permission::JmapShareNotificationChanges),
             97 => Some(Permission::JmapShareNotificationQuery),
@@ -8303,7 +8306,7 @@ impl EnumImpl for Permission {
         }
     }
 
-    const COUNT: usize = 659;
+    const COUNT: usize = 660;
 }
 
 impl serde::Serialize for Permission {

@@ -28,6 +28,7 @@ pub struct CopyRequest<'x, T: JmapObject> {
     pub create: VecMap<MaybeIdReference<Id>, Value<'x, T::Property, T::Element>>,
     pub on_success_destroy_original: Option<bool>,
     pub destroy_from_if_in_state: Option<State>,
+    pub arguments: T::CopyArguments,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -105,7 +106,7 @@ impl<'de, T: JmapObject> DeserializeArguments<'de> for CopyRequest<'de, T> {
                 self.destroy_from_if_in_state = map.next_value()?;
             },
             _ => {
-                let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                self.arguments.deserialize_argument(key, map)?;
             }
         );
 
@@ -165,6 +166,7 @@ impl<'de, T: JmapObject> Default for CopyRequest<'de, T> {
             create: VecMap::new(),
             on_success_destroy_original: None,
             destroy_from_if_in_state: None,
+            arguments: T::CopyArguments::default(),
         }
     }
 }

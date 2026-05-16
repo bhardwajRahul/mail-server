@@ -26,7 +26,7 @@ use crate::{
         copy::JmapEmailCopy, get::EmailGet, import::EmailImport, parse::EmailParse,
         query::EmailQuery, set::EmailSet, snippet::EmailSearchSnippet,
     },
-    file::{get::FileNodeGet, query::FileNodeQuery, set::FileNodeSet},
+    file::{copy::FileNodeCopy, get::FileNodeGet, query::FileNodeQuery, set::FileNodeSet},
     identity::{get::IdentityGet, set::IdentitySet},
     mailbox::{get::MailboxGet, query::MailboxQuery, set::MailboxSet},
     participant_identity::{get::ParticipantIdentityGet, set::ParticipantIdentitySet},
@@ -612,6 +612,18 @@ impl RequestHandler for Server {
                         .assert_has_access(req.from_account_id, Collection::CalendarEvent)?;
 
                     self.calendar_event_copy(*req, access_token, next_call, session)
+                        .await?
+                        .into()
+                }
+                CopyRequestMethod::FileNode(mut req) => {
+                    set_account_id_if_missing(&mut req.from_account_id, access_token);
+                    set_account_id_if_missing(&mut req.account_id, access_token);
+
+                    access_token
+                        .assert_has_access(req.account_id, Collection::FileNode)?
+                        .assert_has_access(req.from_account_id, Collection::FileNode)?;
+
+                    self.file_node_copy(*req, access_token, next_call, session)
                         .await?
                         .into()
                 }

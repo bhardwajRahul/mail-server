@@ -109,6 +109,9 @@ impl Response<'_> {
                 CopyRequestMethod::ContactCard(request) => {
                     request.resolve_references(self, 1, false)?
                 }
+                CopyRequestMethod::FileNode(request) => {
+                    request.resolve_references(self, 1, false)?
+                }
                 CopyRequestMethod::Blob(_) => (),
             },
             RequestMethod::ImportEmail(request) => request.resolve_references(self)?,

@@ -14,7 +14,10 @@ use http_proto::HttpSessionData;
 use jmap_proto::{
     error::set::SetError,
     method::set::{SetRequest, SetResponse},
-    object::file_node::{self, FileNodeProperty, FileNodeValue},
+    object::{
+        AnyId,
+        file_node::{self, FileNodeProperty, FileNodeValue, OnExists},
+    },
     references::resolve::ResolveCreatedReference,
     request::IntoValid,
     types::state::State,
@@ -71,16 +74,12 @@ impl FileNodeSet for Server {
             .arguments
             .on_destroy_remove_children
             .unwrap_or(false);
-        let on_exists = match request.arguments.on_exists.as_deref() {
-            Some("replace") => OnExists::Replace,
-            Some("rename") => OnExists::Rename,
-            _ => OnExists::Reject,
-        };
+        let on_exists = request.arguments.on_exists;
         let case_insensitive = request
             .arguments
             .compare_case_insensitively
             .unwrap_or(false);
-        let mut pending_names: AHashSet<(u32, String)> = AHashSet::new();
+        let mut pending_names: AHashMap<(u32, String), Option<u32>> = AHashMap::new();
         let mut implicit_destroys: AHashSet<u32> = AHashSet::new();
 
         // Process creates
@@ -90,7 +89,7 @@ impl FileNodeSet for Server {
             let mut file_node = FileNode::default();
 
             // Process changes
-            let has_acl_changes = match update_file_node(object, &mut file_node, &mut response) {
+            let has_acl_changes = match update_file_node(object, &mut file_node, true, &response) {
                 Ok(result) => {
                     if let Some(blob_id) = result.blob_id {
                         let file_details = file_node.file.get_or_insert_default();
@@ -152,6 +151,10 @@ impl FileNodeSet for Server {
                 continue 'create;
             }
 
+            if file_node.modified == 0 {
+                file_node.modified = now() as i64;
+            }
+
             let renamed = match find_sibling_collision(
                 None,
                 &file_node,
@@ -160,42 +163,71 @@ impl FileNodeSet for Server {
                 case_insensitive,
             ) {
                 Collision::None => false,
-                Collision::Existing(existing) => match on_exists {
-                    OnExists::Reject => {
-                        response.not_created.append(
-                            id,
-                            SetError::already_exists().with_existing_id(Id::from(existing)),
-                        );
-                        continue 'create;
-                    }
-                    OnExists::Rename => {
-                        file_node.name = pick_unique_rename(
-                            &file_node.name,
-                            None,
-                            file_node.parent_id,
-                            &cache,
-                            &pending_names,
-                            case_insensitive,
-                        );
-                        true
-                    }
-                    OnExists::Replace => {
-                        if let Some(target) = cache.any_resource_path_by_id(existing) {
-                            let subtree_len = cache.subtree(target.path()).count();
-                            if subtree_len > 1 && !on_destroy_remove_children {
-                                response
-                                    .not_created
-                                    .append(id, SetError::node_has_children());
+                Collision::Existing(existing) => {
+                    let effective = match on_exists {
+                        OnExists::Newest => {
+                            let existing_modified = fetch_existing_modified(
+                                self.store(),
+                                account_id,
+                                existing,
+                            )
+                            .await?;
+                            if file_node.modified > existing_modified {
+                                OnExists::Replace
+                            } else {
+                                response.not_created.append(
+                                    id,
+                                    SetError::already_exists()
+                                        .with_existing_id(Id::from(existing)),
+                                );
                                 continue 'create;
                             }
                         }
-                        implicit_destroys.insert(existing);
-                        false
+                        other => other,
+                    };
+                    match effective {
+                        OnExists::Reject => {
+                            response.not_created.append(
+                                id,
+                                SetError::already_exists().with_existing_id(Id::from(existing)),
+                            );
+                            continue 'create;
+                        }
+                        OnExists::Rename => {
+                            file_node.name = pick_unique_rename(
+                                &file_node.name,
+                                None,
+                                file_node.parent_id,
+                                &cache,
+                                &pending_names,
+                                case_insensitive,
+                            );
+                            true
+                        }
+                        OnExists::Replace => {
+                            if let Some(target) = cache.any_resource_path_by_id(existing) {
+                                let subtree_len = cache.subtree(target.path()).count();
+                                if subtree_len > 1 && !on_destroy_remove_children {
+                                    response
+                                        .not_created
+                                        .append(id, SetError::node_has_children());
+                                    continue 'create;
+                                }
+                            }
+                            implicit_destroys.insert(existing);
+                            false
+                        }
+                        OnExists::Newest => unreachable!(),
                     }
-                },
+                }
                 Collision::Pending => match on_exists {
-                    OnExists::Reject => {
-                        response.not_created.append(id, SetError::already_exists());
+                    OnExists::Reject | OnExists::Replace | OnExists::Newest => {
+                        let key = pending_key(&file_node, case_insensitive);
+                        let mut err = SetError::already_exists();
+                        if let Some(Some(doc_id)) = pending_names.get(&key) {
+                            err = err.with_existing_id(Id::from(*doc_id));
+                        }
+                        response.not_created.append(id, err);
                         continue 'create;
                     }
                     OnExists::Rename => {
@@ -208,11 +240,6 @@ impl FileNodeSet for Server {
                             case_insensitive,
                         );
                         true
-                    }
-                    // TODO: support onExists=replace for within-batch pending collisions
-                    OnExists::Replace => {
-                        response.not_created.append(id, SetError::already_exists());
-                        continue 'create;
                     }
                 },
             };
@@ -265,7 +292,7 @@ impl FileNodeSet for Server {
                 created_folders.insert(document_id, file_node.acls.clone());
             }
             let final_name = file_node.name.clone();
-            pending_names.insert(pending_key(&file_node, case_insensitive));
+            pending_names.insert(pending_key(&file_node, case_insensitive), None);
             file_node
                 .insert(
                     access_token.account_tenant_ids(),
@@ -316,7 +343,7 @@ impl FileNodeSet for Server {
                 .caused_by(trc::location!())?;
 
             // Apply changes
-            let has_acl_changes = match update_file_node(object, &mut new_file_node, &mut response)
+            let has_acl_changes = match update_file_node(object, &mut new_file_node, false, &response)
             {
                 Ok(result) => {
                     if let Some(blob_id) = result.blob_id {
@@ -376,42 +403,71 @@ impl FileNodeSet for Server {
                 case_insensitive,
             ) {
                 Collision::None => false,
-                Collision::Existing(existing) => match on_exists {
-                    OnExists::Reject => {
-                        response.not_updated.append(
-                            id,
-                            SetError::already_exists().with_existing_id(Id::from(existing)),
-                        );
-                        continue 'update;
-                    }
-                    OnExists::Rename => {
-                        new_file_node.name = pick_unique_rename(
-                            &new_file_node.name,
-                            Some(document_id),
-                            new_file_node.parent_id,
-                            &cache,
-                            &pending_names,
-                            case_insensitive,
-                        );
-                        true
-                    }
-                    OnExists::Replace => {
-                        if let Some(target) = cache.any_resource_path_by_id(existing) {
-                            let subtree_len = cache.subtree(target.path()).count();
-                            if subtree_len > 1 && !on_destroy_remove_children {
-                                response
-                                    .not_updated
-                                    .append(id, SetError::node_has_children());
+                Collision::Existing(existing) => {
+                    let effective = match on_exists {
+                        OnExists::Newest => {
+                            let existing_modified = fetch_existing_modified(
+                                self.store(),
+                                account_id,
+                                existing,
+                            )
+                            .await?;
+                            if new_file_node.modified > existing_modified {
+                                OnExists::Replace
+                            } else {
+                                response.not_updated.append(
+                                    id,
+                                    SetError::already_exists()
+                                        .with_existing_id(Id::from(existing)),
+                                );
                                 continue 'update;
                             }
                         }
-                        implicit_destroys.insert(existing);
-                        false
+                        other => other,
+                    };
+                    match effective {
+                        OnExists::Reject => {
+                            response.not_updated.append(
+                                id,
+                                SetError::already_exists().with_existing_id(Id::from(existing)),
+                            );
+                            continue 'update;
+                        }
+                        OnExists::Rename => {
+                            new_file_node.name = pick_unique_rename(
+                                &new_file_node.name,
+                                Some(document_id),
+                                new_file_node.parent_id,
+                                &cache,
+                                &pending_names,
+                                case_insensitive,
+                            );
+                            true
+                        }
+                        OnExists::Replace => {
+                            if let Some(target) = cache.any_resource_path_by_id(existing) {
+                                let subtree_len = cache.subtree(target.path()).count();
+                                if subtree_len > 1 && !on_destroy_remove_children {
+                                    response
+                                        .not_updated
+                                        .append(id, SetError::node_has_children());
+                                    continue 'update;
+                                }
+                            }
+                            implicit_destroys.insert(existing);
+                            false
+                        }
+                        OnExists::Newest => unreachable!(),
                     }
-                },
+                }
                 Collision::Pending => match on_exists {
-                    OnExists::Reject => {
-                        response.not_updated.append(id, SetError::already_exists());
+                    OnExists::Reject | OnExists::Replace | OnExists::Newest => {
+                        let key = pending_key(&new_file_node, case_insensitive);
+                        let mut err = SetError::already_exists();
+                        if let Some(Some(doc_id)) = pending_names.get(&key) {
+                            err = err.with_existing_id(Id::from(*doc_id));
+                        }
+                        response.not_updated.append(id, err);
                         continue 'update;
                     }
                     OnExists::Rename => {
@@ -424,10 +480,6 @@ impl FileNodeSet for Server {
                             case_insensitive,
                         );
                         true
-                    }
-                    OnExists::Replace => {
-                        response.not_updated.append(id, SetError::already_exists());
-                        continue 'update;
                     }
                 },
             };
@@ -466,7 +518,10 @@ impl FileNodeSet for Server {
             }
 
             let final_name = new_file_node.name.clone();
-            pending_names.insert(pending_key(&new_file_node, case_insensitive));
+            pending_names.insert(
+                pending_key(&new_file_node, case_insensitive),
+                Some(document_id),
+            );
             // Update record
             new_file_node
                 .update(
@@ -585,15 +640,24 @@ impl FileNodeSet for Server {
     }
 }
 
-struct UpdateResult {
-    has_acl_changes: bool,
-    blob_id: Option<BlobId>,
+pub(super) struct UpdateResult {
+    pub(super) has_acl_changes: bool,
+    pub(super) blob_id: Option<BlobId>,
 }
 
-fn update_file_node(
+pub(super) struct NoResolver;
+
+impl ResolveCreatedReference<FileNodeProperty, FileNodeValue> for NoResolver {
+    fn get_created_id(&self, _: &str) -> Option<AnyId> {
+        None
+    }
+}
+
+pub(super) fn update_file_node<R: ResolveCreatedReference<FileNodeProperty, FileNodeValue>>(
     updates: Value<'_, FileNodeProperty, FileNodeValue>,
     file_node: &mut FileNode,
-    response: &mut SetResponse<file_node::FileNode>,
+    is_create: bool,
+    resolver: &R,
 ) -> Result<UpdateResult, SetError<FileNodeProperty>> {
     let mut has_acl_changes = false;
     let mut blob_id = None;
@@ -605,7 +669,7 @@ fn update_file_node(
                 .with_description("Invalid property."));
         };
 
-        response.resolve_self_references(&mut value, 0, false)?;
+        resolver.resolve_self_references(&mut value, 0, false)?;
 
         match (property, value) {
             (FileNodeProperty::Name, Value::Str(value))
@@ -663,12 +727,19 @@ fn update_file_node(
             }
             // TODO: persist accessed per-user (draft-13 section 3.1)
             (FileNodeProperty::Accessed, _) => {}
-            // TODO: store nodeType explicitly and validate immutability after create
-            (FileNodeProperty::NodeType, _) => {}
+            (FileNodeProperty::NodeType, _) if is_create => {}
+            (FileNodeProperty::NodeType, _) => {
+                return Err(SetError::invalid_properties()
+                    .with_property(FileNodeProperty::NodeType)
+                    .with_description("nodeType is immutable after creation."));
+            }
             // TODO: implement symlink target storage and resolution
             (FileNodeProperty::Target, _) => {}
-            // TODO: server-set changed timestamp on every mutation
-            (FileNodeProperty::Changed, _) => {}
+            (FileNodeProperty::Changed, _) => {
+                return Err(SetError::invalid_properties()
+                    .with_property(FileNodeProperty::Changed)
+                    .with_description("changed is server-set and not settable by clients."));
+            }
             // TODO: store and validate FileNode role for directories
             (FileNodeProperty::Role, _) => {}
             (FileNodeProperty::ShareWith, value) => {
@@ -714,7 +785,7 @@ fn update_file_node(
     })
 }
 
-fn validate_file_node_hierarchy(
+pub(super) fn validate_file_node_hierarchy(
     document_id: Option<u32>,
     node: &FileNode,
     is_shared: bool,
@@ -763,20 +834,33 @@ fn validate_file_node_hierarchy(
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
-enum OnExists {
-    Reject,
-    Rename,
-    Replace,
-}
-
-#[derive(Copy, Clone, PartialEq, Eq)]
-enum Collision {
+pub(super) enum Collision {
     None,
     Existing(u32),
     Pending,
 }
 
-fn names_equal(a: &str, b: &str, case_insensitive: bool) -> bool {
+pub(super) async fn fetch_existing_modified(
+    store: &store::Store,
+    account_id: u32,
+    document_id: u32,
+) -> trc::Result<i64> {
+    Ok(store
+        .get_value::<Archive<AlignedBytes>>(ValueKey::archive(
+            account_id,
+            Collection::FileNode,
+            document_id,
+        ))
+        .await?
+        .map(|arch| {
+            arch.unarchive::<FileNode>()
+                .map(|node| node.modified.to_native())
+                .unwrap_or(0)
+        })
+        .unwrap_or(0))
+}
+
+pub(super) fn names_equal(a: &str, b: &str, case_insensitive: bool) -> bool {
     if case_insensitive {
         a.eq_ignore_ascii_case(b)
     } else {
@@ -784,7 +868,7 @@ fn names_equal(a: &str, b: &str, case_insensitive: bool) -> bool {
     }
 }
 
-fn pending_key(node: &FileNode, case_insensitive: bool) -> (u32, String) {
+pub(super) fn pending_key(node: &FileNode, case_insensitive: bool) -> (u32, String) {
     (
         node.parent_id,
         if case_insensitive {
@@ -795,11 +879,11 @@ fn pending_key(node: &FileNode, case_insensitive: bool) -> (u32, String) {
     )
 }
 
-fn find_sibling_collision(
+pub(super) fn find_sibling_collision(
     document_id: Option<u32>,
     node: &FileNode,
     cache: &DavResources,
-    pending: &AHashSet<(u32, String)>,
+    pending: &AHashMap<(u32, String), Option<u32>>,
     case_insensitive: bool,
 ) -> Collision {
     let node_parent_id = if node.parent_id == 0 {
@@ -818,18 +902,18 @@ fn find_sibling_collision(
             return Collision::Existing(resource.document_id);
         }
     }
-    if pending.contains(&pending_key(node, case_insensitive)) {
+    if pending.contains_key(&pending_key(node, case_insensitive)) {
         return Collision::Pending;
     }
     Collision::None
 }
 
-fn pick_unique_rename(
+pub(super) fn pick_unique_rename(
     base: &str,
     document_id: Option<u32>,
     parent_id: u32,
     cache: &DavResources,
-    pending: &AHashSet<(u32, String)>,
+    pending: &AHashMap<(u32, String), Option<u32>>,
     case_insensitive: bool,
 ) -> String {
     let (stem, ext) = match base.rfind('.') {

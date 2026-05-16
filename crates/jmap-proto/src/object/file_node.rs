@@ -302,8 +302,34 @@ impl FileNodeProperty {
 #[derive(Debug, Clone, Default)]
 pub struct FileNodeSetArguments {
     pub on_destroy_remove_children: Option<bool>,
-    pub on_exists: Option<String>,
+    pub on_exists: OnExists,
     pub compare_case_insensitively: Option<bool>,
+}
+
+pub type FileNodeCopyArguments = FileNodeSetArguments;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OnExists {
+    #[default]
+    Reject,
+    Replace,
+    Rename,
+    Newest,
+}
+
+impl<'de> serde::Deserialize<'de> for OnExists {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value: Option<Cow<'_, str>> = Option::deserialize(deserializer)?;
+        Ok(match value.as_deref() {
+            Some("replace") => OnExists::Replace,
+            Some("rename") => OnExists::Rename,
+            Some("newest") => OnExists::Newest,
+            _ => OnExists::Reject,
+        })
+    }
 }
 
 impl<'x> DeserializeArguments<'x> for FileNodeSetArguments {
@@ -396,7 +422,7 @@ impl JmapObject for FileNode {
 
     type QueryArguments = FileNodeQueryArguments;
 
-    type CopyArguments = ();
+    type CopyArguments = FileNodeCopyArguments;
 
     type ParseArguments = ();
 

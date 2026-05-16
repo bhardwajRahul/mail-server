@@ -140,7 +140,7 @@ pub async fn verify_secret_hash(hashed_secret: &str, secret: &[u8]) -> trc::Resu
         Ok(bsdi_crypt::verify(secret, hashed_secret))
     } else if let Some(hashed_secret) = hashed_secret.strip_prefix('{') {
         if let Some((algo, hashed_secret)) = hashed_secret.split_once('}') {
-            match algo {
+            match algo.to_ascii_uppercase().as_str() {
                 "ARGON2" | "ARGON2I" | "ARGON2ID" | "PBKDF2" => {
                     verify_hash_prefix(hashed_secret, secret).await
                 }
@@ -218,7 +218,7 @@ pub async fn verify_secret_hash(hashed_secret: &str, secret: &[u8]) -> trc::Resu
                             == hashed_secret,
                     )
                 }
-                "CRYPT" | "crypt" => {
+                "CRYPT" => {
                     if hashed_secret.starts_with('$') {
                         verify_hash_prefix(hashed_secret, secret).await
                     } else {
@@ -226,7 +226,7 @@ pub async fn verify_secret_hash(hashed_secret: &str, secret: &[u8]) -> trc::Resu
                         Ok(unix_crypt::verify(secret, hashed_secret))
                     }
                 }
-                "PLAIN" | "plain" | "CLEAR" | "clear" => Ok(hashed_secret.as_bytes() == secret),
+                "PLAIN" | "CLEAR" => Ok(hashed_secret.as_bytes() == secret),
                 _ => Err(trc::AuthEvent::Error
                     .ctx(trc::Key::Reason, "Unsupported algorithm")
                     .details(hashed_secret.to_string())),
@@ -292,37 +292,26 @@ pub async fn hash_secret(algorithm: PasswordHashAlgorithm, secret: Vec<u8>) -> t
 
 pub fn is_password_hash(s: &str) -> bool {
     if s.starts_with("$argon2") || s.starts_with("$pbkdf2") || s.starts_with("$scrypt") {
-        return is_complete_phc(s);
-    }
-
-    if s.starts_with("$2") {
-        return is_bcrypt_format(s);
-    }
-
-    if let Some(body) = s.strip_prefix("$1$") {
-        return is_md5_crypt(body);
-    }
-
-    if let Some(body) = s.strip_prefix("$5$") {
-        return is_sha_crypt(body, 43);
-    }
-
-    if let Some(body) = s.strip_prefix("$6$") {
-        return is_sha_crypt(body, 86);
-    }
-
-    if let Some(body) = s.strip_prefix("$sha1$") {
-        return is_sha1_crypt(body);
-    }
-
-    if let Some(rest) = s.strip_prefix('{') {
-        return rest
-            .split_once('}')
+        is_complete_phc(s)
+    } else if s.starts_with("$2") {
+        is_bcrypt_format(s)
+    } else if let Some(body) = s.strip_prefix("$1$") {
+        is_md5_crypt(body)
+    } else if let Some(body) = s.strip_prefix("$5$") {
+        is_sha_crypt(body, 43)
+    } else if let Some(body) = s.strip_prefix("$6$") {
+        is_sha_crypt(body, 86)
+    } else if let Some(body) = s.strip_prefix("$sha1$") {
+        is_sha1_crypt(body)
+    } else if s.starts_with('_') {
+        is_unix_des_crypt(s)
+    } else if let Some(rest) = s.strip_prefix('{') {
+        rest.split_once('}')
             .map(|(scheme, body)| is_ldap_hash(scheme, body))
-            .unwrap_or(false);
+            .unwrap_or(false)
+    } else {
+        false
     }
-
-    false
 }
 
 fn is_complete_phc(s: &str) -> bool {
@@ -341,20 +330,17 @@ fn all_crypt_b64(s: &str) -> bool {
 
 fn is_bcrypt_format(s: &str) -> bool {
     let bytes = s.as_bytes();
-    if bytes.len() != 60 {
-        return false;
-    }
-    if bytes[1] != b'2' || !matches!(bytes[2], b'a' | b'b' | b'x' | b'y') {
-        return false;
-    }
-    if bytes[3] != b'$'
+    if bytes.len() != 60
+        || !matches!(bytes[2], b'a' | b'b' | b'x' | b'y')
+        || bytes[3] != b'$'
         || !bytes[4].is_ascii_digit()
         || !bytes[5].is_ascii_digit()
         || bytes[6] != b'$'
     {
-        return false;
+        false
+    } else {
+        bytes[7..].iter().copied().all(is_crypt_b64)
     }
-    bytes[7..].iter().copied().all(is_crypt_b64)
 }
 
 fn is_md5_crypt(body: &str) -> bool {
@@ -401,17 +387,20 @@ fn is_sha1_crypt(body: &str) -> bool {
     let Some(hash) = parts.next() else {
         return false;
     };
-    if rounds.is_empty() || !rounds.bytes().all(|b| b.is_ascii_digit()) {
-        return false;
+    if rounds.is_empty()
+        || !rounds.bytes().all(|b| b.is_ascii_digit())
+        || salt.is_empty()
+        || salt.len() > 64
+        || !all_crypt_b64(salt)
+    {
+        false
+    } else {
+        hash.len() == 28 && all_crypt_b64(hash)
     }
-    if salt.is_empty() || salt.len() > 64 || !all_crypt_b64(salt) {
-        return false;
-    }
-    hash.len() == 28 && all_crypt_b64(hash)
 }
 
 fn is_ldap_hash(scheme: &str, body: &str) -> bool {
-    match scheme {
+    match scheme.to_ascii_uppercase().as_str() {
         "SHA" => b64_decoded_len_eq(body, 20),
         "SSHA" => b64_decoded_len_ge(body, 21),
         "SHA256" => b64_decoded_len_eq(body, 32),
@@ -420,7 +409,7 @@ fn is_ldap_hash(scheme: &str, body: &str) -> bool {
         "SSHA512" => b64_decoded_len_ge(body, 65),
         "MD5" => b64_decoded_len_eq(body, 16),
         "ARGON2" | "ARGON2I" | "ARGON2ID" | "PBKDF2" => is_complete_phc(body),
-        "CRYPT" | "crypt" => is_password_hash(body) || is_unix_des_crypt(body),
+        "CRYPT" => is_password_hash(body) || is_unix_des_crypt(body),
         _ => false,
     }
 }
@@ -492,7 +481,8 @@ mod tests {
         assert!(is_password_hash(sha256));
         assert!(sha256_crypt::verify("test", sha256));
 
-        let sha256_rounds = "$5$rounds=11858$WH1ABM5sKhxbkgCK$aTQsjPkz0rBsH3lQlJxw9HDTDXPKBxC0LlVeV69P.t1";
+        let sha256_rounds =
+            "$5$rounds=11858$WH1ABM5sKhxbkgCK$aTQsjPkz0rBsH3lQlJxw9HDTDXPKBxC0LlVeV69P.t1";
         assert!(is_password_hash(sha256_rounds));
         assert!(sha256_crypt::verify("test", sha256_rounds));
 
@@ -503,6 +493,9 @@ mod tests {
         let s1 = sha1_crypt::hash("hello").unwrap();
         assert!(is_password_hash(&s1), "sha1_crypt not detected: {s1}");
         assert!(sha1_crypt::verify("hello", &s1));
+
+        let bsdi = "_J9..K0AyUubDkQmPLeM";
+        assert!(is_password_hash(bsdi), "bsdi_crypt not detected: {bsdi}");
     }
 
     #[test]
@@ -554,7 +547,9 @@ mod tests {
         assert!(is_password_hash(&format!("{{CRYPT}}{inner}")));
         assert!(is_password_hash(&format!("{{crypt}}{inner}")));
 
-        assert!(is_password_hash("{CRYPT}$1$5pZSV9va$azfrPr6af3Fc7dLblQXVa0"));
+        assert!(is_password_hash(
+            "{CRYPT}$1$5pZSV9va$azfrPr6af3Fc7dLblQXVa0"
+        ));
         assert!(is_password_hash("{CRYPT}abcdefghij012"));
         assert!(is_password_hash("{CRYPT}_J9..K0AyUubDkQmPLeM"));
 
@@ -569,6 +564,23 @@ mod tests {
 
         let p = Pbkdf2.hash_password(b"hello", &salt).unwrap().to_string();
         assert!(is_password_hash(&format!("{{PBKDF2}}{p}")));
+
+        let mut h = Sha1::new();
+        h.update(b"hello");
+        let sha_lc = b64(&h.finalize()[..]);
+        assert!(is_password_hash(&format!("{{sha}}{sha_lc}")));
+
+        let mut h = Sha256::new();
+        h.update(b"hello");
+        h.update(b"saltbytes");
+        let mut buf = h.finalize().to_vec();
+        buf.extend_from_slice(b"saltbytes");
+        let ssha256_lc = b64(&buf);
+        assert!(is_password_hash(&format!("{{ssha256}}{ssha256_lc}")));
+
+        let digest = md5::compute(b"hello");
+        let md5_mc = b64(&digest[..]);
+        assert!(is_password_hash(&format!("{{Md5}}{md5_mc}")));
     }
 
     #[test]
@@ -619,7 +631,6 @@ mod tests {
             "{CRYPT}toolongtobeunixcryptbutshortbsdi",
             "{ARGON2ID}notaphcstring",
             "_short",
-            "_J9..K0AyUubDkQmPLeM",
             "_notvalidbsdi",
             "regular_password",
             "1234567890123",

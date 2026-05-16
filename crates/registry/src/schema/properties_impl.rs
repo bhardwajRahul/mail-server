@@ -3050,7 +3050,7 @@ impl EnumImpl for Property {
         }
     }
 
-    const COUNT: usize = 100;
+    const COUNT: usize = 875;
 }
 
 impl serde::Serialize for Property {

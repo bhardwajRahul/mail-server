@@ -245,6 +245,7 @@ impl JmapAuthorization for AccessToken {
                 CopyRequestMethod::Blob(_) => Permission::JmapBlobCopy,
                 CopyRequestMethod::ContactCard(_) => Permission::JmapContactCardCopy,
                 CopyRequestMethod::CalendarEvent(_) => Permission::JmapCalendarEventCopy,
+                CopyRequestMethod::FileNode(_) => Permission::JmapFileNodeCopy,
             },
             RequestMethod::ImportEmail(_) => Permission::JmapEmailImport,
             RequestMethod::Parse(m) => match &m {

@@ -125,6 +125,7 @@ pub enum CopyRequestMethod<'x> {
     Email(Box<CopyRequest<'x, Email>>),
     ContactCard(Box<CopyRequest<'x, ContactCard>>),
     CalendarEvent(Box<CopyRequest<'x, CalendarEvent>>),
+    FileNode(Box<CopyRequest<'x, FileNode>>),
     Blob(Box<CopyBlobRequest>),
 }
 

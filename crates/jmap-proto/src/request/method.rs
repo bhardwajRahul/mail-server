@@ -159,6 +159,7 @@ impl MethodName {
             (MethodFunction::Query, MethodObject::FileNode) => "FileNode/query",
             (MethodFunction::QueryChanges, MethodObject::FileNode) => "FileNode/queryChanges",
             (MethodFunction::Set, MethodObject::FileNode) => "FileNode/set",
+            (MethodFunction::Copy, MethodObject::FileNode) => "FileNode/copy",
 
             (MethodFunction::Get, MethodObject::ShareNotification) => "ShareNotification/get",
             (MethodFunction::Changes, MethodObject::ShareNotification) => {
@@ -294,6 +295,7 @@ impl MethodName {
             "FileNode/query" => (MethodObject::FileNode, MethodFunction::Query),
             "FileNode/queryChanges" => (MethodObject::FileNode, MethodFunction::QueryChanges),
             "FileNode/set" => (MethodObject::FileNode, MethodFunction::Set),
+            "FileNode/copy" => (MethodObject::FileNode, MethodFunction::Copy),
 
             "ShareNotification/get" => (MethodObject::ShareNotification, MethodFunction::Get),
             "ShareNotification/changes" => (MethodObject::ShareNotification, MethodFunction::Changes),
