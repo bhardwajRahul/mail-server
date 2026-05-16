@@ -76,7 +76,7 @@ impl FileNodeGet for Server {
                 .map(|r| r.document_id)
                 .collect::<RoaringBitmap>()
         } else {
-            cache.shared_containers(access_token, [Acl::Read, Acl::ReadItems], true)
+            cache.shared_documents(access_token, [Acl::Read, Acl::ReadItems], true)
         };
 
         let mut ids = if let Some(ids) = ids {

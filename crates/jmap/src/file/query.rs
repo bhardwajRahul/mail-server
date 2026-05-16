@@ -96,15 +96,15 @@ impl FileNodeQuery for Server {
                             _ => None,
                         };
                         let set = match want_container {
-                            Some(is_container) => RoaringBitmap::from_iter(
-                                cache.resources.iter().filter_map(|r| {
+                            Some(is_container) => {
+                                RoaringBitmap::from_iter(cache.resources.iter().filter_map(|r| {
                                     if r.is_container() == is_container {
                                         Some(r.document_id)
                                     } else {
                                         None
                                     }
-                                }),
-                            ),
+                                }))
+                            }
                             // TODO: support symlink nodeType once target storage exists
                             None => RoaringBitmap::new(),
                         };
@@ -194,9 +194,9 @@ impl FileNodeQuery for Server {
         let results = SearchQuery::new(SearchIndex::InMemory)
             .with_filters(filters)
             .with_mask(if access_token.is_shared(account_id) {
-                cache.shared_containers(access_token, [Acl::ReadItems], true)
+                cache.shared_documents(access_token, [Acl::Read, Acl::ReadItems], true)
             } else {
-                cache.document_ids(false).collect()
+                cache.resources.iter().map(|r| r.document_id).collect()
             })
             .filter()
             .into_bitmap();
@@ -246,9 +246,9 @@ impl FileNodeQuery for Server {
                         FileNodeComparator::Name => ra
                             .and_then(|r| r.container_name())
                             .cmp(&rb.and_then(|r| r.container_name())),
-                        FileNodeComparator::Size => ra
-                            .and_then(|r| r.size())
-                            .cmp(&rb.and_then(|r| r.size())),
+                        FileNodeComparator::Size => {
+                            ra.and_then(|r| r.size()).cmp(&rb.and_then(|r| r.size()))
+                        }
                         FileNodeComparator::NodeType => {
                             // Directories sort before files
                             let a_dir = ra.map(|r| r.is_container()).unwrap_or(false);
